@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/icon.png" alt="Tenebrae icon" width="160"/></p>
+
 # Tenebrae
 
 *A liturgy of shadows — cascaded high-gain distortion for the heaviest rhythm tone.*
