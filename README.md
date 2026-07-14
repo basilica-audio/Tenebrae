@@ -10,40 +10,45 @@
 <!-- ==BEGIN BODY== (plugin engineer: replace this block with What it is / Features / Signal flow / Roadmap) -->
 ## What it is
 
-Tenebrae is a high-gain rhythm-guitar distortion built on JUCE 8, aimed squarely at the core "chug" tone of symphonic metal: a tightening high-pass ahead of a cascade of three oversampled waveshaper stages, each progressively tighter and darker than the last, followed by a passive-style 3-band tone stack for shaping the result.
+Tenebrae is a high-gain rhythm-guitar distortion built on JUCE 8, aimed squarely at the core "chug" tone of symphonic metal: a tightening high-pass ahead of a cascade of three oversampled waveshaper stages, each progressively tighter and darker than the last, followed by a passive-style 3-band tone stack for shaping the result. It has no cabinet simulation of its own - pair it with a cab sim/IR loader for the final voicing.
 
-## Features (v0.1 scope)
+## Features
 
 - **Tight** - high-pass pre-emphasis, 20 Hz - 300 Hz (default 90 Hz), removes low end before the gain cascade so palm mutes stay percussive instead of farting out
 - **Gain** - 0 - 40 dB of pre-gain into the 3-stage waveshaper cascade
+- **Voicing** - Tight / Loose switch between two complete cascade voicings (asymmetry + interstage filtering): Tight is the tighter, more modern-leaning default; Loose is a softer-driven, wider-band, more vintage-leaning alternative
+- **Bright** - fixed pre-cascade high-shelf switch, modelled on a high-gain amp channel's bright switch/a brighter cabinet's presence peak
 - **3-stage cascade** - each stage is gain -> asymmetric tanh clip -> a fixed interstage high/low-pass pair; the three stages use progressively tighter, more asymmetric voicing so the cascade converges onto a focused chug band instead of an ever-fizzier mess. Runs inside 8x oversampling to keep aliasing from all three stages out of the audible band
-- **Bass / Mid / Treble** - passive-style tone stack (low shelf @ 150 Hz / peak @ 800 Hz / high shelf @ 3 kHz), +/-15 dB per band
+- **Bass / Mid / Treble** - passive-style tone stack (low shelf @ 150 Hz / peak @ 650 Hz / high shelf @ 3.5 kHz), +/-15 dB per band
+- **Tone Voice** - Flat / Scoop / Boost one-switch dB tilt added on top of the live Bass/Mid/Treble bands, for quickly auditioning a canned high-gain-rhythm tone shape
 - **Level** - output trim, -24 dB to +24 dB
 - **Mix** - dry/wet, with the dry path delay-compensated against the oversampling latency so Mix at 0% is a sample-accurate passthrough
 - Full state save/recall via `AudioProcessorValueTreeState`
 
+See [`docs/manual.md`](docs/manual.md) for the full user manual, including a musical description of every parameter and usage tips.
+
 ## Signal flow
 
 ```
-Input --> Tight (HPF, 20-300 Hz) --> Gain (0-40 dB) --> [8x oversampled]
-              Cascade stage 1 -> Cascade stage 2 -> Cascade stage 3
+Input --> Tight (HPF, 20-300 Hz) --> Bright (switch) --> Gain (0-40 dB) --> [8x oversampled]
+              Cascade stage 1 -> Cascade stage 2 -> Cascade stage 3   (Voicing: Tight/Loose)
                                                               |
-   Output <-- Mix <-- Level <-- Treble <-- Mid <-- Bass <----+
+   Output <-- Mix <-- Level <-- Treble <-- Mid <-- Bass <----+   (tilted by Tone Voice)
      ^
      |
 delay-compensated dry path
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, including the per-stage cascade voicing, oversampling/latency-compensation strategy, and parameter smoothing.
+See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, including the per-stage cascade voicing (both Tight and Loose tables), oversampling/latency-compensation strategy, and parameter smoothing.
 
 ## Roadmap
 
 | Milestone | Description | Status |
 |---|---|---|
-| M0 | Bootstrap - project skeleton, CI, docs | Done |
-| M1 | DSP core - Tight/Gain/3-stage cascade/tone stack/Level/Mix signal path, 8x oversampling + latency compensation, unit tests | Done |
-| M2 | Custom GUI | Planned |
-| M3 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
+| M1 | DSP completion - Voicing/Bright/Tone Voice, refined tone stack, broadened test coverage (sample-rate sweeps, bus configs, long-run stability) | Done |
+| M2 | Preset system + factory presets | Planned |
+| M3 | Custom GUI + accessibility pass | Planned |
+| M4 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
 <!-- ==END BODY== -->
 
 ## Installation
