@@ -3,6 +3,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -126,4 +127,113 @@ TEST_CASE ("Engine: full-scale, maximum-gain input produces bounded, finite outp
 
     CHECK (TestHelpers::allSamplesFinite (buffer));
     CHECK (TestHelpers::peakAbsolute (buffer) < 1000.0f); // sane bound, not just "finite"
+}
+
+TEST_CASE ("Engine: Voicing switch measurably changes the cascade's output (not a no-op)", "[dsp][engine][voicing]")
+{
+    // Renders the identical input through the Tight (0) and Loose (1)
+    // voicings and checks the results actually differ - proving setVoicing()
+    // reaches the cascade rather than being silently ignored. Both voicings
+    // must independently stay finite and bounded too.
+    auto renderWithVoicing = [] (int voicingIndex)
+    {
+        TenebraeEngine engine;
+        engine.setGainDb (30.0f);
+        engine.setMixProportion (1.0f);
+        engine.setVoicing (voicingIndex);
+
+        const auto spec = makeTestSpec (1);
+        engine.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (1, testBlockSize);
+        TestHelpers::fillWithSine (buffer, testSampleRate, testFrequencyHz, 0.7f);
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        engine.process (block);
+
+        return buffer;
+    };
+
+    const auto tightOutput = renderWithVoicing (0);
+    const auto looseOutput = renderWithVoicing (1);
+
+    REQUIRE (TestHelpers::allSamplesFinite (tightOutput));
+    REQUIRE (TestHelpers::allSamplesFinite (looseOutput));
+    CHECK (TestHelpers::peakAbsolute (tightOutput) < 1000.0f);
+    CHECK (TestHelpers::peakAbsolute (looseOutput) < 1000.0f);
+
+    // The two voicings use different asymmetry/interstage filtering, so a
+    // sample-by-sample comparison should show a clear difference somewhere
+    // in the block rather than being bit-identical.
+    const auto* tightData = tightOutput.getReadPointer (0);
+    const auto* looseData = looseOutput.getReadPointer (0);
+
+    float maxAbsoluteDifference = 0.0f;
+    for (int i = 0; i < testBlockSize; ++i)
+        maxAbsoluteDifference = std::max (maxAbsoluteDifference, std::abs (tightData[i] - looseData[i]));
+
+    CHECK (maxAbsoluteDifference > 1.0e-4f);
+}
+
+TEST_CASE ("Engine: Bright switch measurably changes the output and stays finite", "[dsp][engine][bright]")
+{
+    // Bright boosts a fixed high-shelf *before* the 3-stage saturating
+    // cascade (each stage adding its own fixed 6-10 dB internal drive on
+    // top of the user Gain), so by the time the signal reaches the output
+    // its overall RMS is dominated by the cascade's own saturation, not by
+    // a modest pre-boost - a directional "RMS goes up with Bright on" claim
+    // does not hold in general (and doesn't in this specific case; verified
+    // empirically). What must hold is that the switch reaches the signal
+    // chain at all: the two renders should differ, sample by sample, not be
+    // near-identical - same rationale as the Voicing test above.
+    auto renderWithBright = [] (bool brightOn)
+    {
+        TenebraeEngine engine;
+        engine.setGainDb (24.0f);
+        engine.setMixProportion (1.0f);
+        engine.setBright (brightOn);
+
+        const auto spec = makeTestSpec (1);
+        engine.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (1, testBlockSize);
+        TestHelpers::fillWithSine (buffer, testSampleRate, 4000.0, 0.5f); // above the bright shelf corner
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        engine.process (block);
+
+        return buffer;
+    };
+
+    const auto offOutput = renderWithBright (false);
+    const auto onOutput = renderWithBright (true);
+
+    REQUIRE (TestHelpers::allSamplesFinite (offOutput));
+    REQUIRE (TestHelpers::allSamplesFinite (onOutput));
+    CHECK (TestHelpers::peakAbsolute (onOutput) < 1000.0f);
+
+    const auto* offData = offOutput.getReadPointer (0);
+    const auto* onData = onOutput.getReadPointer (0);
+
+    float maxAbsoluteDifference = 0.0f;
+    for (int i = 0; i < testBlockSize; ++i)
+        maxAbsoluteDifference = std::max (maxAbsoluteDifference, std::abs (offData[i] - onData[i]));
+
+    CHECK (maxAbsoluteDifference > 1.0e-4f);
+}
+
+TEST_CASE ("Engine: Voicing does not change the reported oversampling latency", "[dsp][engine][voicing][latency]")
+{
+    // Voicing only selects which preallocated cascade stage triplet runs;
+    // both triplets are driven by the same oversampler, so the reported
+    // latency must be identical regardless of which voicing is selected.
+    TenebraeEngine tightEngine;
+    tightEngine.setVoicing (0);
+    tightEngine.prepare (makeTestSpec (2));
+
+    TenebraeEngine looseEngine;
+    looseEngine.setVoicing (1);
+    looseEngine.prepare (makeTestSpec (2));
+
+    CHECK (tightEngine.getLatencySamples() == looseEngine.getLatencySamples());
 }

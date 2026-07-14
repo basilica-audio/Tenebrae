@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <limits>
 #include <random>
 
@@ -119,11 +120,55 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
         setParam (processor, ParamIDs::treble, useMinimum ? -15.0f : 15.0f);
         setParam (processor, ParamIDs::level, useMinimum ? -24.0f : 24.0f);
         setParam (processor, ParamIDs::mix, useMinimum ? 0.0f : 100.0f);
+        setParam (processor, ParamIDs::voicing, useMinimum ? 0.0f : 1.0f);
+        setParam (processor, ParamIDs::bright, useMinimum ? 0.0f : 1.0f);
+        setParam (processor, ParamIDs::toneVoice, useMinimum ? 0.0f : 2.0f);
 
         TestHelpers::fillWithSine (buffer, 44100.0, 440.0, 0.8f);
 
         CHECK_NOTHROW (processor.processBlock (buffer, midi));
         CHECK (TestHelpers::allSamplesFinite (buffer));
+    }
+}
+
+TEST_CASE ("Every combination of Voicing/Bright/Tone Voice at max gain produces no NaN/Inf", "[robustness]")
+{
+    // The M1 additions (Voicing, Bright, Tone Voice) branch/switch fixed DSP
+    // state rather than being continuous controls, so it's worth exhaustively
+    // covering their combinations - unlike a continuous knob, a bug in one
+    // specific combination wouldn't necessarily show up when the others are
+    // swept independently.
+    TenebraeAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    setParam (processor, ParamIDs::gain, 40.0f);
+    setParam (processor, ParamIDs::tight, 300.0f);
+    setParam (processor, ParamIDs::bass, 15.0f);
+    setParam (processor, ParamIDs::mid, 15.0f);
+    setParam (processor, ParamIDs::treble, 15.0f);
+    setParam (processor, ParamIDs::level, 24.0f);
+    setParam (processor, ParamIDs::mix, 100.0f);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    juce::MidiBuffer midi;
+
+    for (float voicing : { 0.0f, 1.0f })
+    {
+        for (float bright : { 0.0f, 1.0f })
+        {
+            for (float toneVoice : { 0.0f, 1.0f, 2.0f })
+            {
+                setParam (processor, ParamIDs::voicing, voicing);
+                setParam (processor, ParamIDs::bright, bright);
+                setParam (processor, ParamIDs::toneVoice, toneVoice);
+
+                TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 1.0f);
+
+                CHECK_NOTHROW (processor.processBlock (buffer, midi));
+                CHECK (TestHelpers::allSamplesFinite (buffer));
+                CHECK (TestHelpers::peakAbsolute (buffer) < 1000.0f);
+            }
+        }
     }
 }
 
@@ -146,6 +191,13 @@ TEST_CASE ("Rapid parameter automation across many blocks produces no NaN/Inf", 
         setParam (processor, ParamIDs::treble, -15.0f + unit (rng) * 30.0f);
         setParam (processor, ParamIDs::level, -24.0f + unit (rng) * 48.0f);
         setParam (processor, ParamIDs::mix, unit (rng) * 100.0f);
+        // Flip the discrete switches on roughly every other block, so the
+        // sweep also exercises mid-stream Voicing/Bright/Tone Voice changes
+        // (a step-response case the continuous-parameter sweep above can't
+        // reach), not just their values at prepareToPlay() time.
+        setParam (processor, ParamIDs::voicing, unit (rng) < 0.5f ? 0.0f : 1.0f);
+        setParam (processor, ParamIDs::bright, unit (rng) < 0.5f ? 0.0f : 1.0f);
+        setParam (processor, ParamIDs::toneVoice, std::floor (unit (rng) * 3.0f));
 
         juce::AudioBuffer<float> buffer (2, 256);
         TestHelpers::fillWithSine (buffer, 48000.0, 200.0 + unit (rng) * 4000.0, 0.7f);

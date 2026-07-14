@@ -58,15 +58,16 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         static constexpr const char* allIds[] = {
             ParamIDs::tight, ParamIDs::gain, ParamIDs::bass, ParamIDs::mid,
             ParamIDs::treble, ParamIDs::level, ParamIDs::mix,
+            ParamIDs::voicing, ParamIDs::bright, ParamIDs::toneVoice,
         };
 
         for (const auto* id : allIds)
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.1 layout")
+    SECTION ("total parameter count matches the M1 layout")
     {
-        CHECK (apvts.processor.getParameters().size() == 7);
+        CHECK (apvts.processor.getParameters().size() == 10);
     }
 
     SECTION ("Tight: high-pass pre-emphasis defaults and range")
@@ -109,5 +110,33 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
     {
         checkFloatDefault (apvts, ParamIDs::mix, 100.0f);
         checkFloatRange (apvts, ParamIDs::mix, 0.0f, 100.0f);
+    }
+
+    SECTION ("Voicing: cascade voicing choice defaults to Tight (index 0) with 2 options")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::voicing));
+        REQUIRE (param != nullptr);
+        CHECK (param->choices.size() == 2);
+        CHECK (param->choices[0] == "Tight");
+        CHECK (param->choices[1] == "Loose");
+        CHECK (param->getIndex() == 0);
+    }
+
+    SECTION ("Bright: pre-cascade shelf switch defaults to off")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::bright));
+        REQUIRE (param != nullptr);
+        CHECK (param->get() == false);
+    }
+
+    SECTION ("Tone Voice: tilt choice defaults to Flat (index 0) with 3 options")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::toneVoice));
+        REQUIRE (param != nullptr);
+        CHECK (param->choices.size() == 3);
+        CHECK (param->choices[0] == "Flat");
+        CHECK (param->choices[1] == "Scoop");
+        CHECK (param->choices[2] == "Boost");
+        CHECK (param->getIndex() == 0);
     }
 }
