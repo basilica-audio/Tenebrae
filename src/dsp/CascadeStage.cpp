@@ -1,14 +1,29 @@
 #include "CascadeStage.h"
 #include "AsymmetricClipper.h"
 
+#include <cmath>
+
 namespace
 {
     // Keeps a fixed interstage filter frequency safely below Nyquist
     // regardless of host sample rate/oversampling factor, so
     // juce::dsp::IIR::Coefficients::makeHighPass/makeLowPass never receives
     // an out-of-range value (which would produce invalid/NaN coefficients).
+    //
+    // juce::jlimit() is NOT NaN-safe (see GitHub issue #14 - this is the
+    // CascadeStage.cpp duplicate of the same helper/gap fixed in
+    // TenebraeEngine.cpp): both of its internal comparisons evaluate false
+    // for NaN, so NaN falls through unchanged instead of being clamped.
+    // highPassFrequencyHz/lowPassFrequencyHz are fixed per-stage voicing
+    // constants (not user-automatable), so in practice this can currently
+    // only be reached with a NaN via a constructor argument - but the guard
+    // is applied here too, both for defence in depth and so the two
+    // clampBelowNyquist() copies do not silently diverge in behaviour.
     float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept
     {
+        if (std::isnan (frequencyHz))
+            frequencyHz = 10.0f;
+
         const auto nyquist = static_cast<float> (sampleRate) * 0.5f;
         return juce::jlimit (10.0f, nyquist * 0.9f, frequencyHz);
     }

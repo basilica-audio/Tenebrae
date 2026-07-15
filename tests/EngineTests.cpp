@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -236,4 +237,40 @@ TEST_CASE ("Engine: Voicing does not change the reported oversampling latency", 
     looseEngine.prepare (makeTestSpec (2));
 
     CHECK (tightEngine.getLatencySamples() == looseEngine.getLatencySamples());
+}
+
+TEST_CASE ("Engine: NaN Tight frequency does not poison the wet path with NaN output", "[dsp][engine][nan]")
+{
+    // Regression test for GitHub issue #14: clampBelowNyquist() relied
+    // solely on juce::jlimit(), which is not NaN-safe (both of its internal
+    // comparisons evaluate false for NaN, so NaN falls through unchanged).
+    // A NaN Tight target - reachable from a host handing over a NaN
+    // normalised automation value (see the issue for the
+    // AudioParameterFloat::setValue() path) - previously reached
+    // juce::dsp::IIR::Coefficients::makeHighPass() as-is, producing an
+    // {b0,b1,b2,a1,a2} coefficient set that is entirely NaN. Every output
+    // sample of a biquad computed with NaN coefficients is NaN from the
+    // very first sample of the block (NaN multiplied/added with anything is
+    // NaN), so this reproduces reliably in a single block, on every
+    // architecture - unlike the "does the NaN *persist* in filter state"
+    // question, which is architecture-dependent (see the issue).
+    TenebraeEngine engine;
+    engine.setGainDb (20.0f);
+    engine.setMixProportion (1.0f);
+
+    const auto spec = makeTestSpec (2);
+    engine.prepare (spec);
+
+    // Force the Tight HPF coefficients to be (re)computed from a NaN target
+    // on the very next process() call - tightFrequencySmoothed's ramp
+    // reaches its (NaN) target well within one 8192-sample block.
+    engine.setTightFrequencyHz (std::numeric_limits<float>::quiet_NaN());
+
+    juce::AudioBuffer<float> buffer (2, testBlockSize);
+    TestHelpers::fillWithSine (buffer, testSampleRate, testFrequencyHz, 0.5f);
+
+    juce::dsp::AudioBlock<float> block (buffer);
+    CHECK_NOTHROW (engine.process (block));
+
+    CHECK (TestHelpers::allSamplesFinite (buffer));
 }

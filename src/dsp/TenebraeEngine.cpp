@@ -1,13 +1,32 @@
 #include "TenebraeEngine.h"
 
+#include <cmath>
+
 namespace
 {
     // Keeps a requested filter frequency safely below Nyquist regardless of
     // host sample rate, so juce::dsp::IIR::Coefficients::makeHighPass never
     // receives an out-of-range value (which would produce invalid/NaN
     // coefficients).
+    //
+    // juce::jlimit() is NOT NaN-safe (see GitHub issue #14): both of its
+    // internal comparisons (`value < lowerLimit`, `upperLimit < value`)
+    // evaluate false for a NaN `value`, so NaN falls through unchanged
+    // rather than being clamped. A NaN Tight frequency can reach here
+    // directly from host automation (juce::AudioParameterFloat::setValue()
+    // does not itself guard against a NaN normalised value), and an
+    // unclamped NaN passed to makeHighPass() produces NaN filter
+    // coefficients that poison tightHighPass's delay-line state for at
+    // least the block the NaN coefficients are applied on every
+    // architecture - indefinitely on arm64, where JUCE's snap-to-zero
+    // denormal cleanup (JUCE_SNAP_TO_ZERO) is a no-op rather than the
+    // NaN-clearing comparison it is on x86_64. Replacing NaN with a safe
+    // in-range default *before* the jlimit() call below closes that gap.
     float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept
     {
+        if (std::isnan (frequencyHz))
+            frequencyHz = 10.0f;
+
         const auto nyquist = static_cast<float> (sampleRate) * 0.5f;
         return juce::jlimit (10.0f, nyquist * 0.9f, frequencyHz);
     }
