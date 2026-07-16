@@ -3,6 +3,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <limits>
+
 // Verifies the ToneStack's Bass/Treble bands measurably shift low/high
 // energy in the expected direction - tested against ToneStack directly
 // (rather than through the full oversampled cascade) so the result isolates
@@ -143,4 +145,47 @@ TEST_CASE ("ToneStack: Tone Voice tilt is added on top of live Bass/Mid/Treble g
     CHECK (rmsScoop < rmsFlat * 0.9);  // Scoop cuts the mid
     CHECK (rmsBoost > rmsFlat * 1.1);  // Boost lifts the mid
     CHECK (rmsBoost > rmsScoop * 1.5); // comfortably distinct from each other
+}
+
+TEST_CASE ("ToneStack: NaN Bass gain is treated as a 0 dB no-op, not a silent full cut", "[dsp][tonestack][nan]")
+{
+    // Regression test for GitHub issue #14: ToneStack::clampCombinedGainDb()
+    // relied solely on juce::jlimit(), which is not NaN-safe (both of its
+    // internal comparisons evaluate false for NaN, so NaN previously fell
+    // through unchanged). Unlike clampBelowNyquist() (see
+    // EngineTests.cpp/CascadeStageTests.cpp's NaN tests), an unclamped NaN
+    // gain here does not itself produce NaN *output*: it reaches
+    // juce::Decibels::decibelsToGain(), whose own `decibels > minusInfinityDb
+    // ? pow(...) : 0` branch also evaluates false for NaN and happens to
+    // return a linear gain of exactly 0 - i.e. pre-fix, a NaN Bass value
+    // silently and severely attenuates the Bass band (a low-shelf gain of 0
+    // linear nulls everything below the shelf corner) rather than NaN-ing
+    // it. That is still a real correctness bug (a NaN parameter should be
+    // treated as a safe no-op, not as an accidental "cut this band to
+    // nothing"), and it is what this test pins down: post-fix, a NaN Bass
+    // value clamps to 0 dB and behaves as a no-op, leaving a 100 Hz tone
+    // (squarely inside the Bass band) close to its input level rather than
+    // reduced to near-silence.
+    ToneStack toneStack;
+    toneStack.setBassDb (std::numeric_limits<float>::quiet_NaN());
+
+    const auto spec = makeTestSpec();
+    toneStack.prepare (spec);
+    toneStack.updateCoefficients (testBlockSize);
+
+    juce::AudioBuffer<float> buffer (1, testBlockSize);
+    TestHelpers::fillWithSine (buffer, testSampleRate, 100.0, 0.5f);
+    const auto inputRms = TestHelpers::rms (buffer);
+
+    juce::dsp::AudioBlock<float> block (buffer);
+    juce::dsp::ProcessContextReplacing<float> context (block);
+    CHECK_NOTHROW (toneStack.process (context));
+
+    const auto outputRms = TestHelpers::rms (buffer);
+
+    CHECK (TestHelpers::allSamplesFinite (buffer));
+    // Pre-fix this was ~0.00001x the input (a linear-gain-0 low shelf nulls
+    // everything below its corner); post-fix it is a 0 dB no-op.
+    CHECK (outputRms > inputRms * 0.9);
+    CHECK (outputRms < inputRms * 1.1);
 }

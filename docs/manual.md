@@ -8,7 +8,7 @@
 
 Tenebrae is a high-gain rhythm-guitar distortion built around a cascade of three oversampled waveshaper stages, each progressively tighter and darker than the last, so the tone converges onto a focused "chug" band instead of piling up into an ever-fizzier mess as gain stacks. It is not a boost/overdrive (that is the sibling plugin `overture`'s job) and it is not a cab sim - it is the "wall of gain" itself: the core distortion stage a boost pedal pushes into, and the stage a cab sim/IR loader sits after.
 
-## Where it sits in a symphonic-metal chain
+## Where it sits in a heavy production chain
 
 Tenebrae is the **main gain stage**. A typical chain:
 

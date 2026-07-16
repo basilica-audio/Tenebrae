@@ -4,15 +4,15 @@
 
 *A liturgy of shadows — cascaded high-gain distortion for the heaviest rhythm tone.*
 
-[![CI](https://github.com/metal-up-your-ass/tenebrae/actions/workflows/ci.yml/badge.svg)](https://github.com/metal-up-your-ass/tenebrae/actions/workflows/ci.yml)
+[![CI](https://github.com/basilica-audio/tenebrae/actions/workflows/ci.yml/badge.svg)](https://github.com/basilica-audio/tenebrae/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> **Work in progress.** Tenebrae is pre-1.0 and under active development. There are no built binaries or releases yet — building from source is currently the only way to run it. Expect breaking changes until v1.0.0 ships (see [Roadmap](#roadmap)).
+> **Work in progress.** Tenebrae is pre-1.0 and under active development. Binaries for macOS and Windows are available from the [Releases](../../releases) page (currently unsigned — see the release notes); building from source works too. Expect breaking changes until v1.0.0 ships (see [Roadmap](#roadmap)).
 
 <!-- ==BEGIN BODY== (plugin engineer: replace this block with What it is / Features / Signal flow / Roadmap) -->
 ## What it is
 
-Tenebrae is a high-gain rhythm-guitar distortion built on JUCE 8, aimed squarely at the core "chug" tone of symphonic metal: a tightening high-pass ahead of a cascade of three oversampled waveshaper stages, each progressively tighter and darker than the last, followed by a passive-style 3-band tone stack for shaping the result. It has no cabinet simulation of its own - pair it with a cab sim/IR loader for the final voicing.
+Tenebrae is a high-gain rhythm-guitar distortion built on JUCE 8, aimed squarely at the core "chug" tone of modern metal: a tightening high-pass ahead of a cascade of three oversampled waveshaper stages, each progressively tighter and darker than the last, followed by a passive-style 3-band tone stack for shaping the result. It has no cabinet simulation of its own - pair it with a cab sim/IR loader for the final voicing.
 
 ## Features
 

@@ -1,4 +1,7 @@
 #include "TenebraeEngine.h"
+#include "RealtimeGain.h"
+
+#include <cmath>
 
 namespace
 {
@@ -6,8 +9,25 @@ namespace
     // host sample rate, so juce::dsp::IIR::Coefficients::makeHighPass never
     // receives an out-of-range value (which would produce invalid/NaN
     // coefficients).
+    //
+    // juce::jlimit() is NOT NaN-safe (see GitHub issue #14): both of its
+    // internal comparisons (`value < lowerLimit`, `upperLimit < value`)
+    // evaluate false for a NaN `value`, so NaN falls through unchanged
+    // rather than being clamped. A NaN Tight frequency can reach here
+    // directly from host automation (juce::AudioParameterFloat::setValue()
+    // does not itself guard against a NaN normalised value), and an
+    // unclamped NaN passed to makeHighPass() produces NaN filter
+    // coefficients that poison tightHighPass's delay-line state for at
+    // least the block the NaN coefficients are applied on every
+    // architecture - indefinitely on arm64, where JUCE's snap-to-zero
+    // denormal cleanup (JUCE_SNAP_TO_ZERO) is a no-op rather than the
+    // NaN-clearing comparison it is on x86_64. Replacing NaN with a safe
+    // in-range default *before* the jlimit() call below closes that gap.
     float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept
     {
+        if (std::isnan (frequencyHz))
+            frequencyHz = 10.0f;
+
         const auto nyquist = static_cast<float> (sampleRate) * 0.5f;
         return juce::jlimit (10.0f, nyquist * 0.9f, frequencyHz);
     }
@@ -53,6 +73,12 @@ void TenebraeEngine::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate;
 
+    // See process()'s doc comment and GitHub issue #13: bounds the chunk
+    // size process() ever hands to processChunk(), so an oversized incoming
+    // block never reaches the oversampler/scratch buffers below at more
+    // than the size they were actually allocated for.
+    maxPreparedBlockSamples = juce::jmax (static_cast<size_t> (1), static_cast<size_t> (spec.maximumBlockSize));
+
     tightHighPass.prepare (spec);
 
     brightShelf.prepare (spec);
@@ -60,6 +86,12 @@ void TenebraeEngine::prepare (const juce::dsp::ProcessSpec& spec)
     preGain.setRampDurationSeconds (smoothingTimeSeconds);
     preGain.prepare (spec);
     preGain.setGainDecibels (lastGainDb);
+
+    // Sized once here (not on the audio thread) to the host's maximum block
+    // size, shared by preGain and outputLevel below - see the member's doc
+    // comment in TenebraeEngine.h and RealtimeGain.h for why this replaces
+    // juce::dsp::Gain::process()'s own per-call stack allocation.
+    hostRateGainScratch.resize (static_cast<size_t> (spec.maximumBlockSize));
 
     // 8x oversampling (2^3), half-band polyphase IIR: three cascaded
     // nonlinearities generate substantially more high-frequency content than
@@ -255,6 +287,34 @@ void TenebraeEngine::process (juce::dsp::AudioBlock<float>& block)
     if (numSamples == 0)
         return;
 
+    if (numSamples <= maxPreparedBlockSamples)
+    {
+        processChunk (block);
+        return;
+    }
+
+    // Oversized block (larger than the maximumBlockSize declared to
+    // prepare()) - see process()'s doc comment and GitHub issue #13. Chunk
+    // it down rather than truncating: truncating would leave the excess
+    // samples completely unprocessed (raw input passed through with no
+    // Tight/Gain/cascade/tone-stack/Level/Mix applied at all), which is a
+    // worse and more surprising failure mode than the extra CPU cost of an
+    // additional chunk or two.
+    size_t position = 0;
+
+    while (position < numSamples)
+    {
+        const auto chunkSize = juce::jmin (maxPreparedBlockSamples, numSamples - position);
+        auto chunk = block.getSubBlock (position, chunkSize);
+        processChunk (chunk);
+        position += chunkSize;
+    }
+}
+
+void TenebraeEngine::processChunk (juce::dsp::AudioBlock<float>& block)
+{
+    const auto numSamples = block.getNumSamples();
+
     // Coefficient recomputation involves trig calls, so Tight is smoothed
     // and re-derived once per block rather than per sample - a standard
     // real-time-safe compromise for IIR filters, whose coefficients aren't
@@ -278,7 +338,9 @@ void TenebraeEngine::process (juce::dsp::AudioBlock<float>& block)
 
     tightHighPass.process (context);
     brightShelf.process (context);
-    preGain.process (context);
+    // See GitHub issue #12/RealtimeGain.h: routes around
+    // juce::dsp::Gain::process()'s multichannel-branch alloca().
+    RealtimeGain::process (preGain, context, hostRateGainScratch.data(), hostRateGainScratch.size());
 
     auto oversampledBlock = oversampler->processSamplesUp (block);
     juce::dsp::ProcessContextReplacing<float> oversampledContext (oversampledBlock);
@@ -299,7 +361,8 @@ void TenebraeEngine::process (juce::dsp::AudioBlock<float>& block)
     oversampler->processSamplesDown (block);
 
     toneStack.process (context);
-    outputLevel.process (context);
+    // See GitHub issue #12/RealtimeGain.h: same rationale as preGain above.
+    RealtimeGain::process (outputLevel, context, hostRateGainScratch.data(), hostRateGainScratch.size());
 
     dryWetMixer.mixWetSamples (block);
 }
