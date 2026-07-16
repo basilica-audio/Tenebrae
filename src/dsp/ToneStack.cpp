@@ -1,9 +1,24 @@
 #include "ToneStack.h"
 
+#include <cmath>
+
 ToneStack::ToneStack() = default;
 
 float ToneStack::clampCombinedGainDb (float gainDb) noexcept
 {
+    // juce::jlimit() is NOT NaN-safe (see GitHub issue #14): both of its
+    // internal comparisons evaluate false for NaN, so a NaN gain falls
+    // through unchanged instead of being clamped, and would otherwise reach
+    // makeLowShelf/makePeakFilter/makeHighShelf as-is - producing NaN filter
+    // coefficients that poison this band's delay-line state. gainDb here is
+    // a smoothed Bass/Mid/Treble value plus a fixed Tone Voice tilt, and the
+    // smoothed value can itself be driven NaN by NaN host automation (see
+    // TenebraeEngine.cpp's clampBelowNyquist() for the fuller writeup of the
+    // same class of gap). Replacing NaN with 0 dB (no gain) before the
+    // jlimit() call below closes it.
+    if (std::isnan (gainDb))
+        gainDb = 0.0f;
+
     return juce::jlimit (-combinedGainLimitDb, combinedGainLimitDb, gainDb);
 }
 

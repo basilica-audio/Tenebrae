@@ -2,6 +2,8 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <vector>
+
 // One stage of Tenebrae's waveshaper cascade: gain -> asymmetric tanh
 // nonlinearity -> a fixed interstage high/low shaping filter pair.
 //
@@ -55,6 +57,15 @@ private:
     juce::dsp::Gain<float> driveGain;
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> interstageHighPass;
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> interstageLowPass;
+
+    // Scratch buffer for RealtimeGain::process() (see CascadeStage.cpp and
+    // RealtimeGain.h), sized in prepare() to the OVERSAMPLED maximum block
+    // size - i.e. up to 8x the host's own maximum block size. Routes around
+    // juce::dsp::Gain::process()'s multichannel branch, which alloca()s a
+    // scratch buffer of exactly this size on the stack on every call (see
+    // GitHub issue #12) - the single largest stack allocation in the whole
+    // signal chain, since driveGain runs on the oversampled block.
+    std::vector<float> driveGainScratch;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CascadeStage)
 };

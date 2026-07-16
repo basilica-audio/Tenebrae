@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-16
+
+### Changed
+
+- Housekeeping: new icon motif with canonical squircle cutout embedded into the plugin binary (`ICON_BIG`) and README/manual, org link sweep, heavy-music copy reframe, README pointed at GitHub Releases, and the signed tag-triggered release CI workflow added.
+
+### Fixed
+
+- `clampBelowNyquist()` (`TenebraeEngine.cpp`, duplicated in `CascadeStage.cpp`) and `ToneStack::clampCombinedGainDb()` relied solely on `juce::jlimit()`, which is not NaN-safe (both of its internal comparisons evaluate false for NaN, so a NaN input previously fell through unclamped). A NaN Tight-frequency or Bass/Mid/Treble gain reaching these from host automation could produce NaN filter coefficients that poison a filter's delay-line state (persistently on arm64, where JUCE's snap-to-zero denormal cleanup is a no-op, vs. self-healing after one block on x86_64). Both helpers now replace a NaN input with a safe default before clamping. (#14)
+- `CascadeStage::driveGain`, `TenebraeEngine::preGain`, and `TenebraeEngine::outputLevel` (all `juce::dsp::Gain<float>`) called JUCE's own `Gain::process()`, whose multichannel branch `alloca()`s a scratch buffer sized to the block on every call, with no upper bound or heap fallback - `driveGain` runs on the 8x-oversampled block, making it the single largest stack allocation in the whole signal chain. All three now go through a new `RealtimeGain::process()` helper (`src/dsp/RealtimeGain.h`) that replicates JUCE's own per-sample math into a caller-owned buffer sized once in `prepare()`, eliminating the audio-thread `alloca()`. (#12)
+- `TenebraeEngine::process()` never compared the incoming block's sample count against the `maximumBlockSize` declared to `prepare()`. An oversized block (some hosts occasionally hand over one - offline bounce/render, buffer-size renegotiation) went straight into `juce::dsp::Oversampling`'s internal buffer, which is sized to exactly that declared maximum and only bounds-checks with a debug-only `jassert` - silent heap corruption with no exception to catch in a Release build. `process()` now chunks any oversized block down into `prepare()`-sized pieces via a new internal `processChunk()` rather than truncating it, so no more than the declared maximum ever reaches the oversampler (or any other `prepare()`-sized internal buffer) in one call. (#13)
+
 ## [0.1.0] - 2026-07-14
 
 ### Added

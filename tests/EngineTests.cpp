@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -236,4 +237,113 @@ TEST_CASE ("Engine: Voicing does not change the reported oversampling latency", 
     looseEngine.prepare (makeTestSpec (2));
 
     CHECK (tightEngine.getLatencySamples() == looseEngine.getLatencySamples());
+}
+
+TEST_CASE ("Engine: NaN Tight frequency does not poison the wet path with NaN output", "[dsp][engine][nan]")
+{
+    // Regression test for GitHub issue #14: clampBelowNyquist() relied
+    // solely on juce::jlimit(), which is not NaN-safe (both of its internal
+    // comparisons evaluate false for NaN, so NaN falls through unchanged).
+    // A NaN Tight target - reachable from a host handing over a NaN
+    // normalised automation value (see the issue for the
+    // AudioParameterFloat::setValue() path) - previously reached
+    // juce::dsp::IIR::Coefficients::makeHighPass() as-is, producing an
+    // {b0,b1,b2,a1,a2} coefficient set that is entirely NaN. Every output
+    // sample of a biquad computed with NaN coefficients is NaN from the
+    // very first sample of the block (NaN multiplied/added with anything is
+    // NaN), so this reproduces reliably in a single block, on every
+    // architecture - unlike the "does the NaN *persist* in filter state"
+    // question, which is architecture-dependent (see the issue).
+    TenebraeEngine engine;
+    engine.setGainDb (20.0f);
+    engine.setMixProportion (1.0f);
+
+    const auto spec = makeTestSpec (2);
+    engine.prepare (spec);
+
+    // Force the Tight HPF coefficients to be (re)computed from a NaN target
+    // on the very next process() call - tightFrequencySmoothed's ramp
+    // reaches its (NaN) target well within one 8192-sample block.
+    engine.setTightFrequencyHz (std::numeric_limits<float>::quiet_NaN());
+
+    juce::AudioBuffer<float> buffer (2, testBlockSize);
+    TestHelpers::fillWithSine (buffer, testSampleRate, testFrequencyHz, 0.5f);
+
+    juce::dsp::AudioBlock<float> block (buffer);
+    CHECK_NOTHROW (engine.process (block));
+
+    CHECK (TestHelpers::allSamplesFinite (buffer));
+}
+
+TEST_CASE ("Engine: a block larger than the prepared maximum is chunked, not passed straight into the oversampler", "[dsp][engine][oversized]")
+{
+    // Regression test for GitHub issue #13: process() did not compare the
+    // incoming block's sample count against the maximumBlockSize declared
+    // to prepare(), so an oversized block (some hosts occasionally hand
+    // over one - offline bounce/render, buffer-size renegotiation) went
+    // straight into oversampler->processSamplesUp()/processSamplesDown(),
+    // whose internal buffer juce::dsp::Oversampling::initProcessing() sized
+    // for at most the prepared maximum. Every processSamplesUp/Down
+    // override only guards its writes with a debug-only jassert (compiles
+    // to nothing in Release), so this was silent heap corruption in a
+    // Release build with no exception to catch.
+    //
+    // Verified locally (git-stash the process()/processChunk() split back
+    // out) that this exact test scenario fires a cluster of JUCE assertions
+    // pre-fix (juce_Oversampling.cpp, juce_AudioBlock.h, RealtimeGain.h's
+    // own jassert, juce_DryWetMixer.cpp - every prepare()-sized buffer this
+    // oversized block touches) in a Debug build - but because they are
+    // debug-only *logged* assertions rather than a deterministic crash, and
+    // the out-of-bounds writes happen to land in unused heap slack in this
+    // environment, the corruption does not reliably show up as a failing
+    // CHECK() here (same limitation sibling plugin apotheosis's equivalent
+    // test documents for its own issue #14/#15). The finite/bounded/
+    // actually-processed checks below are the best deterministic, portable
+    // regression coverage available for the *correctness* of the fix
+    // (chunking, not truncating); the buffer-safety claim itself is
+    // demonstrated by the JUCE source citations above and the local
+    // Debug-build assertion trace, not by this test alone.
+    TenebraeEngine engine;
+    engine.setGainDb (20.0f);
+    engine.setMixProportion (1.0f);
+
+    constexpr int preparedMaxBlockSize = 256;
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = testSampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32> (preparedMaxBlockSize);
+    spec.numChannels = 2;
+    engine.prepare (spec);
+
+    // Deliberately more than 2x the prepared 256-sample maximum and not an
+    // exact multiple of it, so process()'s chunking loop is also exercised
+    // on a partial final chunk, not just whole ones.
+    constexpr int numSamples = 700;
+    static_assert (numSamples > preparedMaxBlockSize, "must actually exceed the prepared maximum - see issue #13");
+
+    juce::AudioBuffer<float> reference (2, numSamples);
+    TestHelpers::fillWithSine (reference, testSampleRate, 1000.0, 0.7f);
+
+    juce::AudioBuffer<float> processed;
+    processed.makeCopyOf (reference);
+
+    juce::dsp::AudioBlock<float> block (processed);
+    CHECK_NOTHROW (engine.process (block));
+
+    CHECK (TestHelpers::allSamplesFinite (processed));
+    CHECK (TestHelpers::peakAbsolute (processed) < 1000.0f);
+
+    // Correct chunking must run the *entire* 700-sample block through the
+    // full chain, not truncate to the first prepared-size (256-sample)
+    // chunk and pass the remainder through raw/unprocessed - so every
+    // sample from index 256 onward must differ measurably from the
+    // untouched input (Gain=20 dB into the cascade's nonlinearity plus Tone
+    // Voice/Level guarantees a clearly audible difference at 100% wet).
+    const auto* refData = reference.getReadPointer (0);
+    const auto* outData = processed.getReadPointer (0);
+
+    float maxAbsoluteDifference = 0.0f;
+    for (int i = preparedMaxBlockSize; i < numSamples; ++i)
+        maxAbsoluteDifference = std::max (maxAbsoluteDifference, std::abs (outData[i] - refData[i]));
+
+    CHECK (maxAbsoluteDifference > 1.0e-3f);
 }
