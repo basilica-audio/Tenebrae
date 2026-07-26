@@ -201,6 +201,13 @@ private:
     // TVP (program-dependent release) state.
     float fastEnvelopeDb = envelopeFloorDb;
     float slowEnvelopeDb = envelopeFloorDb;
+
+    // Latched TVP mode. The dump is a STATE, not a per-sample test: dumping
+    // sets the slow envelope equal to the fast one, so on the very next
+    // sample the window is no longer exceeded and a per-sample test would
+    // fall straight back to decay-tracking. The note has stopped, and it
+    // stays stopped until the gate reopens.
+    bool tvpDumped = false;
     float trackedSlopeDbPerSecond = 0.0f;
     float tvpFastAttackCoefficient = 1.0f;
     float tvpFastReleaseCoefficient = 1.0f;

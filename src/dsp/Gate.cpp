@@ -81,6 +81,7 @@ void Gate::reset()
     fastEnvelopeDb = envelopeFloorDb;
     slowEnvelopeDb = envelopeFloorDb;
     trackedSlopeDbPerSecond = 0.0f;
+    tvpDumped = false;
 
     for (auto& filter : keyHighPassFilters)
         filter.reset();
@@ -283,6 +284,9 @@ void Gate::process (juce::dsp::ProcessContextReplacing<float>& context)
         const auto targetGain = gateShouldBeOpen ? 1.0f : closedTargetGain;
 
         // ---- Ballistics ---------------------------------------------------
+        if (gateShouldBeOpen)
+            tvpDumped = false; // a new note cancels a latched dump
+
         if (targetGain > currentGain || ! usingTvp)
         {
             // v0.2 path, unchanged: one-pole toward the target. Also the
@@ -316,20 +320,37 @@ void Gate::process (juce::dsp::ProcessContextReplacing<float>& context)
             if ((slowEnvelopeDb - fastEnvelopeDb) > tvpWindowDb)
             {
                 slowEnvelopeDb = fastEnvelopeDb; // dump
+                tvpDumped = true;
+            }
+
+            if (tvpDumped)
+            {
                 slopeDbPerSecond = tvpDumpReleaseDbPerSecond;
             }
             else
             {
                 // Decay-tracking: estimate how fast the programme itself is
                 // falling, then fade slightly faster than that.
-                const auto instantaneousSlope = juce::jlimit (
-                    0.0f,
-                    tvpMaxTrackedSlopeDbPerSecond,
-                    (previousSlowDb - slowEnvelopeDb) * static_cast<float> (sampleRate));
+                //
+                // The instantaneous estimate is smoothed BEFORE it is clamped,
+                // not after. The detector reads an instantaneous peak, so on
+                // any periodic programme the envelope ripples up and down
+                // within every cycle. Clamping each sample's estimate to
+                // non-negative first would discard the rising half and keep
+                // the falling half, rectifying the ripple into a systematic
+                // over-estimate of the decay rate - measured at about +8 dB/s
+                // on a 220 Hz note, which is a fifth of the whole margin.
+                // Smoothing first lets the two halves cancel, and the clamp
+                // then only guards the settled value.
+                const auto instantaneousSlope = (previousSlowDb - slowEnvelopeDb)
+                                                 * static_cast<float> (sampleRate);
 
                 trackedSlopeDbPerSecond += (instantaneousSlope - trackedSlopeDbPerSecond)
                                             * tvpSlopeSmoothingCoefficient;
-                slopeDbPerSecond = trackedSlopeDbPerSecond + tvpTrackMarginDbPerSecond;
+
+                slopeDbPerSecond = juce::jlimit (0.0f, tvpMaxTrackedSlopeDbPerSecond,
+                                                 trackedSlopeDbPerSecond)
+                                    + tvpTrackMarginDbPerSecond;
             }
 
             // dB-linear ramp: one exp() per sample rather than a log/pow pair.
