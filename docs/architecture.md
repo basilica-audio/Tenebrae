@@ -29,11 +29,54 @@ Two M1 additions sit outside this linear diagram since they are discrete switche
 
 v0.2.0 (`docs/design-brief.md`) added two modules to the linear diagram, both post-tone-stack and pre-Level: **Presence**, a fixed-2.4kHz post-cascade high-shelf (unlike Bright, which is pre-cascade), and **Gate**, a conventional fixed attack/hold/release expander/gate that gates the fully-voiced wet signal. Also in v0.2.0: the ToneStack's Treble corner moved from 3.5 kHz to 5 kHz (an internal filter-coefficient constant, not a parameter range change - see [The tone stack](#the-tone-stack) below and `docs/design-brief.md` section 3.4 for the full rationale).
 
+### v0.3.0: the Triode engine branch
+
+`Engine` selects between two complete tone-generating cores. Classic is the diagram above, with its
+code untouched by this release - which is what makes the migration guarantee provable rather than
+argued (`tests/StateTests.cpp`, T-S1). Triode replaces the three `CascadeStage` units with three
+`TriodeStage` units and optionally inserts `PowerAmp`, both inside the oversampled region:
+
+```mermaid
+flowchart LR
+    GAIN[Gain] --> UP[Oversample<br/>2x / 4x / 8x by Quality]
+    UP --> T1[TriodeStage 1<br/>coupling HP -> cathode shelf<br/>-> minus bias -> ADAA LUT -> Miller LP]
+    T1 --> T2[TriodeStage 2]
+    T2 --> T3[TriodeStage 3]
+    T3 --> POL[x -1<br/>polarity normalisation]
+    POL --> PA[PowerAmp<br/>optional]
+    PA --> DOWN[Downsample]
+```
+
+Each `TriodeStage` solves the Dempwolf-Zoelzer 12AX7 equations at `prepare()` - first for its own DC
+operating point, then for a 2048-point static plate curve with the grid stopper in circuit - and
+wraps that curve in the three time-variant effects a memoryless waveshaper cannot produce: a
+grid-overshoot bias sidechain (blocking distortion, ~20 ms recovery), an analytic cathode-bypass
+shelf plus bloom follower, and a Miller interstage low-pass. See `src/dsp/TriodeStage.h` for the
+per-effect derivation and `src/dsp/TriodeCascade.cpp` for the two voicing tables.
+
+Every shaper in this branch runs through first-order ADAA (`src/dsp/ADAAShaper.h`). The LUT flavour
+stores its interpolant as cubic Hermite segments and evaluates the antiderivative as the exact
+quartic antiderivative of those same segments, so `F1' == S` identically - a consistency requirement,
+not an optimisation, because the divided difference amplifies any mismatch by `1/dx`.
+
+`PowerAmp` closes a unit-delay negative-feedback loop around an ADAA `tanh` output transformer, with
+Resonance and Presence as cut-only shelves in the *return* path and an envelope-driven sag term on
+the transformer's headroom. The loop's small-signal gain is bounded at 0.5 - at least 6 dB of margin
+at every frequency up to the oversampled Nyquist - asserted at `prepare()` and gated in CI by T-P5.
+See the header for why that bound is a hard requirement of the unit-delay discretisation rather than
+a taste decision.
+
+All four oversampling chains (Classic's 8x plus Triode's 2x/4x/8x) are built in `prepare()` and stay
+resident, so switching Engine or Quality is a pointer swap plus an in-place coefficient rebuild,
+measured at zero additional allocations (T-X1). Because both parameters change the reported latency,
+and `setLatencySamples()` is message-thread-only, the engine publishes its current latency into an
+atomic and `PluginProcessor::LatencyReporter` re-reports it from a timer.
+
 ## Module map
 
 | Directory | Responsibility |
 |---|---|
-| `src/dsp` | All audio-thread DSP: `AsymmetricClipper` (the stateless tanh nonlinearity), `CascadeStage` (one gain -> clip -> fixed interstage HP/LP unit), `ToneStack` (Bass/Mid/Treble shelving+peak bands, plus the Tone Voice tilt), `Gate` (v0.2.0: fixed attack/hold/release expander/gate - see [The Gate](#the-gate) below), and `TenebraeEngine` (the full signal chain wiring them together with the Tight HPF, Bright switch, pre-gain, 8x oversampling, Voicing-selected cascade, the v0.2.0 Presence shelf, the Gate, Level, and dry/wet mix). No allocation, locks, or I/O once `prepare()` has run. Independent of `juce::AudioProcessor`, so it is directly unit-testable (see `tests/EngineTests.cpp`, `tests/AsymmetricClipperTests.cpp`, `tests/ToneStackTests.cpp`, `tests/GateTests.cpp`). |
+| `src/dsp` | All audio-thread DSP: `AsymmetricClipper` (the stateless tanh nonlinearity), `CascadeStage` (one gain -> clip -> fixed interstage HP/LP unit), `ToneStack` (Bass/Mid/Treble shelving+peak bands, plus the Tone Voice tilt), `Gate` (v0.2.0: fixed attack/hold/release expander/gate - see [The Gate](#the-gate) below), `ADAAShaper` (v0.3.0: shared first-order antialiasing, LUT and closed-form flavours), `TriodeStage`/`TriodeCascade` (v0.3.0: the stateful triode engine), `PowerAmp` (v0.3.0: the negative-feedback power-amp block), and `TenebraeEngine` (the full signal chain wiring them together with the Tight HPF, Bright switch, pre-gain, 8x oversampling, Voicing-selected cascade, the v0.2.0 Presence shelf, the Gate, Level, and dry/wet mix). No allocation, locks, or I/O once `prepare()` has run. Independent of `juce::AudioProcessor`, so it is directly unit-testable (see `tests/EngineTests.cpp`, `tests/AsymmetricClipperTests.cpp`, `tests/ToneStackTests.cpp`, `tests/GateTests.cpp`). |
 | `src/params` | Parameter layout and `AudioProcessorValueTreeState` definitions - parameter IDs, ranges, defaults. Single source of truth for what a preset captures. |
 | `src/presets` | M2 preset system (`PresetManager`/`PresetBar`/`Localisation`) - suite-wide, copy-paste-portable across all 13 plugins (pilot: `basilica-audio/nave`, see `docs/preset-system-notes.md`). Owns factory/user preset discovery, load/save/import/export, default resolution, dirty-state tracking, and the German i18n frame. |
 | `src/PluginProcessor.*` | Host plumbing: APVTS construction, `prepareToPlay`/`processBlock`/`reset`, latency reporting, state save/load, `PresetManager` construction/wiring. Reads APVTS values and pushes them into `TenebraeEngine` every block; does not implement any DSP itself. |

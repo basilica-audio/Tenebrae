@@ -40,3 +40,16 @@ A user can still make any preset (including Foundation Chug) the literal
 startup default via the preset menu's "Set current as default", which writes
 a user preset file literally named "Default" (see `PresetManager.h`'s
 `setCurrentAsDefault()`).
+
+## v0.3.0 additions — the Triode engine bank
+
+Four presets that put the new engine, the power-amp block and the gate's new capabilities to work.
+All four select **Engine = Triode**; the eight presets above are unchanged and still run the Classic
+engine, exactly as they did in v0.2.0.
+
+| Preset | What it is |
+|---|---|
+| **Triode Foundation** | The reference Triode voice and the right place to start. Standard quality, no power amp, a slightly higher Tight corner than Foundation Chug, and the gate keyed pre-distortion with a few dB of hysteresis so it separates playing from not-playing properly at high gain. |
+| **Sagging Doom** | Loose voicing, low Tight corner, power amp on with deep Resonance and heavy Sag, and Bias Shift pushed past neutral. Slow, spongy and heavy - the note blooms and the amp visibly recovers between hits. Gate Range is finite rather than Mute so long decays fade instead of being switched off. |
+| **Feedback Tight Rhythm** | The opposite end: high Tight corner, Bright on, moderate Resonance and a lot of Presence, with the power amp's feedback loop doing the top-end shaping rather than the EQ. Tight, modern and articulate. |
+| **Adaptive Gate Chug** | Eco quality (lowest latency, for tracking), pre-distortion key, hysteresis, and **Gate Release Mode = Auto** - the gate works out for itself whether a note stopped or is decaying. Built for fast palm-muted parts where a single fixed release time cannot cover both. |
