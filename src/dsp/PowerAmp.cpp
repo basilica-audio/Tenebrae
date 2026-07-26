@@ -114,7 +114,7 @@ void PowerAmp::reset() noexcept
 {
     for (auto& channel : channels)
     {
-        channel.adaa.reset (0.0);
+        tnbr::adaa::prime (transformer, channel.adaa, 0.0);
         channel.feedback = 0.0;
         channel.resonanceZ = 0.0;
         channel.presenceZ = 0.0;

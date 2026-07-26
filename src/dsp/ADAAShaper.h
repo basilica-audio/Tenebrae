@@ -51,6 +51,22 @@ namespace tnbr::adaa
         }
     };
 
+    // Primes `state` at `atX` for a specific shaper.
+    //
+    // This is NOT optional, and State::reset() alone is not enough for any
+    // shaper whose F1 is not zero at the reset point. The LUT flavour below
+    // anchors F1 = 0 at the *left edge* of its table, so F1(0) is the whole
+    // integral from the left edge to the origin - a number of order 1, not 0.
+    // Leaving previousF1 at 0 makes the very first divided difference
+    // (F1(x) - 0)/dx, i.e. a spike of order F1(0)/dx, which for a slowly
+    // moving signal is enormous. Every reset() path must come through here.
+    template <typename Shaper>
+    inline void prime (const Shaper& shaper, State& state, double atX = 0.0) noexcept
+    {
+        state.previousX = atX;
+        state.previousF1 = shaper.antiderivative (atX);
+    }
+
     // Runs one ADAA1 step through `shaper`, which must expose
     //   double value (double x) const     -> f(x)
     //   double antiderivative (double x)  -> F1(x), with F1' == f exactly

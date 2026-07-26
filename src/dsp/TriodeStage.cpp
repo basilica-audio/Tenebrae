@@ -137,7 +137,8 @@ void TriodeStage::reset() noexcept
 {
     for (auto& channel : channels)
     {
-        channel.adaa.reset (0.0);
+        // Primed against the curve, not merely zeroed - see adaa::prime().
+        tnbr::adaa::prime (curve, channel.adaa, 0.0);
         channel.couplingHighPassZ = 0.0;
         channel.cathodeShelfZ = 0.0;
         channel.millerZ = 0.0;
