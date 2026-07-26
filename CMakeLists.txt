@@ -75,6 +75,10 @@ juce_add_binary_data(TenebraeBinaryData SOURCES
     presets/factory/brightAggressive.json
     presets/factory/looseAndOpen.json
     presets/factory/fullDryWetBlend.json
+    presets/factory/triodeFoundation.json
+    presets/factory/saggingDoom.json
+    presets/factory/feedbackTightRhythm.json
+    presets/factory/adaptiveGateChug.json
     resources/i18n/de.txt
 )
 
@@ -147,6 +151,10 @@ target_link_libraries(Tests PRIVATE SharedCode Catch2::Catch2)
 target_compile_definitions(Tests PRIVATE
     $<TARGET_PROPERTY:Tenebrae,COMPILE_DEFINITIONS>
     JUCE_MODAL_LOOPS_PERMITTED=1
+    # Absolute path to tests/fixtures, so the migration tests can load the
+    # committed v0.2 state fixture regardless of the working directory ctest
+    # happens to run the binary from.
+    TENEBRAE_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
 )
 
 set_target_properties(Tests PROPERTIES XCODE_GENERATE_SCHEME ON)

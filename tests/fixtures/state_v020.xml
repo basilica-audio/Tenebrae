@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- A session state exactly as Tenebrae v0.2.0 wrote it.
+
+     Sixteen <PARAM> elements - the complete v0.1/v0.2 parameter set - and no
+     stateSchema attribute on the root, because v0.2.0 did not write one.
+     Every value is that version's default, which is what makes this fixture
+     usable as the reference half of T-S1 (tests/StateTests.cpp): a processor
+     that loads this file must render byte-identically to a fresh v0.3.0
+     processor at its own defaults, because all ten of v0.3.0's new
+     parameters are specified to be neutral.
+
+     Do not add the v0.3.0 IDs here. The whole point of the fixture is that
+     they are absent, so that the load path is genuinely exercising the
+     "missing ID falls back to its default" migration that a real v0.2
+     session will take. -->
+
+<PARAMETERS>
+  <PARAM id="tight" value="90.0"/>
+  <PARAM id="gain" value="24.0"/>
+  <PARAM id="bass" value="0.0"/>
+  <PARAM id="mid" value="0.0"/>
+  <PARAM id="treble" value="0.0"/>
+  <PARAM id="level" value="0.0"/>
+  <PARAM id="mix" value="100.0"/>
+  <PARAM id="voicing" value="0.0"/>
+  <PARAM id="bright" value="0.0"/>
+  <PARAM id="toneVoice" value="0.0"/>
+  <PARAM id="presence" value="0.0"/>
+  <PARAM id="gateThreshold" value="-48.0"/>
+  <PARAM id="gateAttack" value="1.0"/>
+  <PARAM id="gateHold" value="20.0"/>
+  <PARAM id="gateRelease" value="150.0"/>
+  <PARAM id="gateOn" value="1.0"/>
+</PARAMETERS>

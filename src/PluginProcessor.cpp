@@ -47,6 +47,12 @@ namespace
             { BinaryData::brightAggressive_json, BinaryData::brightAggressive_jsonSize },
             { BinaryData::looseAndOpen_json, BinaryData::looseAndOpen_jsonSize },
             { BinaryData::fullDryWetBlend_json, BinaryData::fullDryWetBlend_jsonSize },
+            // v0.3.0: four presets showcasing the Triode engine, the power-amp
+            // block and the new gate capabilities.
+            { BinaryData::triodeFoundation_json, BinaryData::triodeFoundation_jsonSize },
+            { BinaryData::saggingDoom_json, BinaryData::saggingDoom_jsonSize },
+            { BinaryData::feedbackTightRhythm_json, BinaryData::feedbackTightRhythm_jsonSize },
+            { BinaryData::adaptiveGateChug_json, BinaryData::adaptiveGateChug_jsonSize },
         };
     }
 }

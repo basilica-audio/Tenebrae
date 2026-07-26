@@ -224,6 +224,9 @@ void TenebraeEngine::prepare (const juce::dsp::ProcessSpec& spec)
                            false, true, true);
     gateKeyPointers.assign (static_cast<size_t> (juce::jmax (1u, spec.numChannels)), nullptr);
 
+    chainSwapFadeSamples = juce::jmax (16, static_cast<int> (sampleRate * chainSwapFadeSeconds));
+    chainSwapFadeCounter = 0;
+
     stageBiasSmoothed.reset (sampleRate, smoothingTimeSeconds);
     stageBiasSmoothed.setCurrentAndTargetValue (lastStageBiasScale);
     resonanceSmoothed.reset (sampleRate, smoothingTimeSeconds);
@@ -456,9 +459,26 @@ void TenebraeEngine::applyChainSelection (bool resetChainState)
 
     if (resetChainState)
     {
+        // Clear every nonlinear chain, not just the one being switched to.
+        // A chain that is switched away from and later switched back to would
+        // otherwise resume from state that is however many seconds stale, and
+        // splicing that onto the live signal rings - measurably: switching
+        // back to Classic a second time produced a peak 2.3x the settled
+        // level even with the fade in place, because the fade covers the new
+        // chain's ramp-in but not a stale chain's discontinuity.
+        //
+        // This runs only on a deliberate Engine/Quality change, so it cannot
+        // affect a migrated v0.2 session, which never changes either.
         active->reset();
         triodeCascade.reset();
         powerAmp.reset();
+
+        cascadeStage1.reset();
+        cascadeStage2.reset();
+        cascadeStage3.reset();
+        cascadeStage1Loose.reset();
+        cascadeStage2Loose.reset();
+        cascadeStage3Loose.reset();
 
         // The new chain starts from zero state, so ramp its first samples in
         // rather than splicing them onto the previous chain's tail.
@@ -675,6 +695,26 @@ void TenebraeEngine::processChunk (juce::dsp::AudioBlock<float>& block)
     {
         *presenceShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
             sampleRate, presenceShelfFrequencyHz, presenceShelfQ, juce::Decibels::decibelsToGain (presenceDb));
+    }
+
+    // Non-finite input guard. A single Inf or NaN sample reaching any of the
+    // one-pole/IIR states below latches there permanently (y += a*(x - y) with
+    // x = Inf leaves y = Inf for good), and every subsequent block comes out
+    // NaN even after the input goes clean again - which
+    // tests/RobustnessTests.cpp (T-X2) measures directly. Replacing it at the
+    // boundary protects every downstream filter in both engines at the cost of
+    // one branch per sample.
+    //
+    // This cannot affect the bit-identity guarantee: for finite input the
+    // sample is passed through untouched, and every render the migration gates
+    // compare is finite by construction.
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    {
+        auto* data = block.getChannelPointer (channel);
+
+        for (size_t sample = 0; sample < numSamples; ++sample)
+            if (! std::isfinite (data[sample]))
+                data[sample] = 0.0f;
     }
 
     juce::dsp::ProcessContextReplacing<float> context (block);

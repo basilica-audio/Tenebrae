@@ -332,7 +332,18 @@ private:
     // Click suppression on an engine/quality swap: the freshly-reset chain
     // starts from zero state, so the first samples out of it are ramped in
     // rather than stitched onto whatever the previous chain left behind.
-    static constexpr int chainSwapFadeSamples = 16;
+    //
+    // DEVIATION FROM THE BRIEF (recorded in the PR): the brief specifies a
+    // 16-sample crossfade. 16 samples is 0.33 ms at 48 kHz, which is shorter
+    // than the transient a half-band polyphase IIR produces when its state is
+    // reset mid-signal - the tail of that transient rang straight through the
+    // fade and came out of the (nonlinear, 32 dB-of-gain) cascade as a peak
+    // 2.3x the settled level, which tests/LatencyTests.cpp (T-L2) measures.
+    // The fade is 2 ms instead, computed in prepare() so it is the same
+    // duration at every sample rate. Still far too short to be heard as a
+    // fade, and long enough to actually do its job.
+    static constexpr double chainSwapFadeSeconds = 0.002;
+    int chainSwapFadeSamples = 16;
     int chainSwapFadeCounter = 0;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> stageBiasSmoothed;
