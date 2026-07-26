@@ -172,6 +172,95 @@ namespace tnbr
             "Gate",
             true));
 
+        //======================================================================
+        // v0.3.0 additions. Ten parameters, every one of them NEUTRAL at its
+        // default so that a v0.2 session - which carries none of these IDs and
+        // therefore falls back to exactly these defaults - renders
+        // bit-identically after migration (tests/StateTests.cpp, T-S1).
+
+        // Engine and Quality both change the reported latency, so both are
+        // flagged non-automatable: a host sweeping them as automation would
+        // force a latency renegotiation mid-render.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::engine, 1 },
+            "Engine",
+            juce::StringArray { "Classic", "Triode" },
+            0,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::quality, 1 },
+            "Quality",
+            juce::StringArray { "Eco", "Standard", "HQ" },
+            1,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
+        // Bias Shift: 100 % is the voicing's own calibrated depth.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::stageBias, 1 },
+            "Bias Shift",
+            juce::NormalisableRange<float> (0.0f, 200.0f, 0.1f),
+            100.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::powerAmp, 1 },
+            "Power Amp",
+            false));
+
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::resonance, 1 },
+            "Resonance",
+            juce::NormalisableRange<float> (0.0f, 12.0f, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::sag, 1 },
+            "Sag",
+            juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+        // Gate v2 (see src/dsp/Gate.h) - a strict superset, so every one of
+        // these four defaults reproduces the v0.2 gate exactly.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::gateKey, 1 },
+            "Gate Key",
+            juce::StringArray { "Post", "Pre" },
+            0));
+
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::gateHysteresis, 1 },
+            "Gate Hysteresis",
+            juce::NormalisableRange<float> (Gate::minHysteresisDb, Gate::maxHysteresisDb, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        // The maximum position is "Mute" (a hard zero target, the v0.2
+        // behaviour) rather than 90 dB of attenuation, hence the custom
+        // string conversion.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::gateRange, 1 },
+            "Gate Range",
+            juce::NormalisableRange<float> (Gate::minRangeDb, Gate::maxRangeDb, 0.1f),
+            Gate::maxRangeDb,
+            juce::AudioParameterFloatAttributes()
+                .withLabel ("dB")
+                .withStringFromValueFunction ([] (float value, int)
+                                              {
+                                                  if (value >= Gate::maxRangeDb)
+                                                      return juce::String ("Mute");
+
+                                                  return juce::String (-value, 1) + " dB";
+                                              })));
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::gateReleaseMode, 1 },
+            "Gate Release Mode",
+            juce::StringArray { "Manual", "Auto" },
+            0));
+
         return layout;
     }
 }
