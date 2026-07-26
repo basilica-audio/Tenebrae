@@ -206,13 +206,18 @@ namespace TestHelpers
     // an integer multiple of the fundamental, relative to the fundamental's
     // own magnitude. This is the standard stepped-sine ASR measurement
     // (research-oversampling-architecture.md section 5, test T1).
+    //
+    // The exclusion band defaults to 12 bins because the Blackman-Harris
+    // main lobe is 8 bins wide: a narrower band leaves the skirts of every
+    // (large) harmonic inside the "alias" sum, which puts a floor on the
+    // measurement well above the floor being measured.
     inline double aliasToSignalRatioDb (const std::vector<double>& magnitudes,
                                         double sampleRate,
                                         double fundamentalHz,
                                         int fftSize,
                                         double lowestHz = 20.0,
                                         double highestHz = 20000.0,
-                                        int harmonicToleranceBins = 4)
+                                        int harmonicToleranceBins = 12)
     {
         const auto binWidth = sampleRate / fftSize;
         const auto nyquist = 0.5 * sampleRate;
