@@ -12,17 +12,23 @@ namespace
     constexpr int labelHeight = 20;
     constexpr int margin = 16;
     constexpr int presetBarHeight = 28;
-    // Signal-flow order (docs/design-brief.md section 2): Tight, Gain,
-    // Voicing, Bright, Bass, Mid, Treble, Tone Voice, Presence, Gate
-    // Threshold/Attack/Hold/Release/On, Level, Mix - 16 control slots total
-    // (12 knobs, 2 combo boxes, 2 toggle buttons), all the same slot width
-    // for a simple, evenly spaced v0.1/v0.2 layout. A custom vector-drawn
-    // GUI is a later milestone (M3) - per this suite's "do not gold-plate"
-    // convention, v0.2.0 only adds the new controls to the existing plain
-    // grid rather than redesigning the layout.
-    constexpr int numSlots = 16;
-    constexpr int editorWidth = margin * 2 + numSlots * knobSize + (numSlots - 1) * margin;
-    constexpr int editorHeight = margin * 3 + presetBarHeight + labelHeight + knobSize + textBoxHeight;
+    // Signal-flow order (docs/design-brief.md section 2), now 26 control
+    // slots: row 1 is the v0.1/v0.2 chain (Tight, Gain, Voicing, Bright,
+    // Bass, Mid, Treble, Tone Voice, Presence, Gate Threshold/Attack/Hold/
+    // Release/On) plus Level and Mix; row 2 is the v0.3.0 additions (Engine,
+    // Quality, Bias Shift, Power Amp, Resonance, Sag, Gate Key, Gate
+    // Hysteresis, Gate Range, Gate Release Mode).
+    //
+    // Sixteen slots in a single row was already at the width limit, so v0.3.0
+    // wraps onto a second row rather than growing the window past 2.7k px. A
+    // custom vector-drawn GUI is a later milestone (M3) - per this suite's
+    // "do not gold-plate" convention, this release only adds the new controls
+    // to the existing plain grid rather than redesigning the layout.
+    constexpr int slotsPerRow = 16;
+    constexpr int numRows = 2;
+    constexpr int rowHeight = labelHeight + knobSize + textBoxHeight;
+    constexpr int editorWidth = margin * 2 + slotsPerRow * knobSize + (slotsPerRow - 1) * margin;
+    constexpr int editorHeight = margin * 3 + presetBarHeight + numRows * rowHeight + margin;
 
     // M2 i18n frame (.scaffold/specs/preset-system-m2.md): selects German
     // (resources/i18n/de.txt) or falls through to English, once, at editor
@@ -75,6 +81,22 @@ TenebraeAudioProcessorEditor::TenebraeAudioProcessorEditor (TenebraeAudioProcess
     configureKnob (levelKnob, ParamIDs::level, "Level");
     configureKnob (mixKnob, ParamIDs::mix, "Mix");
 
+    // ---- v0.3.0 -----------------------------------------------------------
+    configureChoice (engineChoice, ParamIDs::engine, "Engine");
+    configureChoice (qualityChoice, ParamIDs::quality, "Quality");
+    configureKnob (stageBiasKnob, ParamIDs::stageBias, "Bias Shift");
+
+    powerAmpButton.setButtonText ("Power Amp");
+    addAndMakeVisible (powerAmpButton);
+    powerAmpAttachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, ParamIDs::powerAmp, powerAmpButton);
+
+    configureKnob (resonanceKnob, ParamIDs::resonance, "Resonance");
+    configureKnob (sagKnob, ParamIDs::sag, "Sag");
+    configureChoice (gateKeyChoice, ParamIDs::gateKey, "Gate Key");
+    configureKnob (gateHysteresisKnob, ParamIDs::gateHysteresis, "Gate Hyst");
+    configureKnob (gateRangeKnob, ParamIDs::gateRange, "Gate Range");
+    configureChoice (gateReleaseModeChoice, ParamIDs::gateReleaseMode, "Gate Rel Mode");
+
     setResizable (false, false);
     setSize (editorWidth, editorHeight);
 }
@@ -118,36 +140,56 @@ void TenebraeAudioProcessorEditor::resized()
     presetBar.setBounds (bounds.removeFromTop (presetBarHeight));
     bounds.removeFromTop (margin);
 
-    bounds.removeFromTop (labelHeight); // room for the attached labels above each control
-
-    const auto slotWidth = bounds.getWidth() / numSlots;
+    const auto slotWidth = bounds.getWidth() / slotsPerRow;
     const auto comboBoxHeight = textBoxHeight;
 
-    tightKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    gainKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    auto firstRow = bounds.removeFromTop (rowHeight);
+    firstRow.removeFromTop (labelHeight); // room for the attached labels above each control
 
-    auto voicingSlot = bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0);
-    voicingChoice.box.setBounds (voicingSlot.removeFromTop (comboBoxHeight));
+    bounds.removeFromTop (margin);
 
-    auto brightSlot = bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0);
-    brightButton.setBounds (brightSlot.removeFromTop (comboBoxHeight));
+    auto secondRow = bounds.removeFromTop (rowHeight);
+    secondRow.removeFromTop (labelHeight);
 
-    bassKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    midKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    trebleKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    // Places one control in the next slot of `row`. Knobs fill the slot;
+    // combo boxes and toggles take only the top strip of it, exactly as the
+    // v0.2 layout did.
+    const auto placeKnob = [slotWidth] (juce::Rectangle<int>& row, Knob& knob)
+    {
+        knob.slider.setBounds (row.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    };
 
-    auto toneVoiceSlot = bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0);
-    toneVoiceChoice.box.setBounds (toneVoiceSlot.removeFromTop (comboBoxHeight));
+    const auto placeComponent = [slotWidth, comboBoxHeight] (juce::Rectangle<int>& row, juce::Component& component)
+    {
+        auto slot = row.removeFromLeft (slotWidth).reduced (margin / 2, 0);
+        component.setBounds (slot.removeFromTop (comboBoxHeight));
+    };
 
-    presenceKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    gateThresholdKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    gateAttackKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    gateHoldKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    gateReleaseKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    placeKnob (firstRow, tightKnob);
+    placeKnob (firstRow, gainKnob);
+    placeComponent (firstRow, voicingChoice.box);
+    placeComponent (firstRow, brightButton);
+    placeKnob (firstRow, bassKnob);
+    placeKnob (firstRow, midKnob);
+    placeKnob (firstRow, trebleKnob);
+    placeComponent (firstRow, toneVoiceChoice.box);
+    placeKnob (firstRow, presenceKnob);
+    placeKnob (firstRow, gateThresholdKnob);
+    placeKnob (firstRow, gateAttackKnob);
+    placeKnob (firstRow, gateHoldKnob);
+    placeKnob (firstRow, gateReleaseKnob);
+    placeComponent (firstRow, gateOnButton);
+    placeKnob (firstRow, levelKnob);
+    placeKnob (firstRow, mixKnob);
 
-    auto gateOnSlot = bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0);
-    gateOnButton.setBounds (gateOnSlot.removeFromTop (comboBoxHeight));
-
-    levelKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
-    mixKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    placeComponent (secondRow, engineChoice.box);
+    placeComponent (secondRow, qualityChoice.box);
+    placeKnob (secondRow, stageBiasKnob);
+    placeComponent (secondRow, powerAmpButton);
+    placeKnob (secondRow, resonanceKnob);
+    placeKnob (secondRow, sagKnob);
+    placeComponent (secondRow, gateKeyChoice.box);
+    placeKnob (secondRow, gateHysteresisKnob);
+    placeKnob (secondRow, gateRangeKnob);
+    placeComponent (secondRow, gateReleaseModeChoice.box);
 }
