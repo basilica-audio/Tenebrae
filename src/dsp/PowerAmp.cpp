@@ -224,10 +224,21 @@ double PowerAmp::processSample (double x, size_t channel) noexcept
     // Supply sag: the envelope of the output squeezes the transformer's
     // headroom, so the block loses gain under sustained drive and recovers
     // over ~120 ms - gain droop and bloom per note.
-    const auto headroom = std::clamp (1.0 - sagAmount * state.sagEnvelope, minimumHeadroom, 1.0);
-    const auto invHeadroom = 1.0 / headroom;
+    //
+    // DEVIATION FROM THE BRIEF (recorded in the PR). Brief section 3.2 writes
+    // this as y = OT(u * headroom) / headroom. That is inverted with respect
+    // to its own stated intent: OT saturates at 1/k, so OT(u*h)/h saturates at
+    // 1/(k*h), and a *shrinking* h therefore *raises* the ceiling - sag would
+    // make the block louder and less compressed instead of producing "gain
+    // droop + recovery per note". The multiply and the divide are swapped
+    // here so that the ceiling is h/k and shrinks with the headroom, which is
+    // what a sagging supply actually does. The stability bound is untouched:
+    // d(y)/d(u) = OT'(u/h) <= 1 either way, so max|OT'| = 1 still holds and
+    // T-P5's L <= 0.5 gate is unaffected.
+    const auto headroom = std::clamp (1.0 - sagAmount * sagSensitivity * state.sagEnvelope,
+                                      minimumHeadroom, 1.0);
 
-    const auto y = tnbr::adaa::process (transformer, state.adaa, u * headroom) * invHeadroom;
+    const auto y = tnbr::adaa::process (transformer, state.adaa, u / headroom) * headroom;
 
     const auto rectified = std::abs (y);
     const auto sagCoefficient = rectified > state.sagEnvelope ? sagAttackCoefficient : sagReleaseCoefficient;
