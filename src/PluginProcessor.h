@@ -50,6 +50,13 @@ public:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    // APVTS-root attribute stamped on every state this version saves - see
+    // getStateInformation(). States written by v0.1/v0.2 carry no such
+    // attribute; loading them is unaffected, because migration is purely
+    // additive (missing IDs fall back to their neutral defaults).
+    static constexpr const char* stateSchemaAttribute = "stateSchema";
+    static constexpr const char* stateSchemaVersion = "3";
+
     juce::AudioProcessorValueTreeState apvts;
 
     // M2 preset system (.scaffold/specs/preset-system-m2.md,
@@ -82,6 +89,45 @@ private:
     std::atomic<float>* gateHoldMs = nullptr;
     std::atomic<float>* gateReleaseMs = nullptr;
     std::atomic<float>* gateOnToggle = nullptr;
+
+    // v0.3.0 additions.
+    std::atomic<float>* engineChoice = nullptr;
+    std::atomic<float>* qualityChoice = nullptr;
+    std::atomic<float>* stageBiasPercent = nullptr;
+    std::atomic<float>* powerAmpToggle = nullptr;
+    std::atomic<float>* resonanceDb = nullptr;
+    std::atomic<float>* sagPercent = nullptr;
+    std::atomic<float>* gateKeyChoice = nullptr;
+    std::atomic<float>* gateHysteresisDb = nullptr;
+    std::atomic<float>* gateRangeDb = nullptr;
+    std::atomic<float>* gateReleaseModeChoice = nullptr;
+
+    // Pushes the engine's parameter values across. Shared by prepareToPlay()
+    // and processBlock() so the two can never drift apart.
+    void pushParametersToEngine();
+
+    //==========================================================================
+    // Latency renegotiation (brief section 3.3/risk 4).
+    //
+    // Engine and Quality both change the oversampling factor and therefore
+    // the reported latency, but juce::AudioProcessor::setLatencySamples() is
+    // a message-thread call (it notifies every host listener). The engine
+    // publishes its current latency into an atomic from the audio thread and
+    // this timer re-reports it from the message thread. Both parameters are
+    // flagged non-automatable, so this path only ever runs on a deliberate
+    // user switch, never per block during a render.
+    class LatencyReporter : public juce::Timer
+    {
+    public:
+        explicit LatencyReporter (TenebraeAudioProcessor& ownerToUse) : owner (ownerToUse) {}
+        void timerCallback() override;
+
+    private:
+        TenebraeAudioProcessor& owner;
+    };
+
+    std::atomic<int> pendingLatencySamples { 0 };
+    LatencyReporter latencyReporter { *this };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TenebraeAudioProcessor)
 };

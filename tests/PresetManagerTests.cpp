@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "TestHelpers.h"
 #include "params/ParameterIds.h"
 #include "presets/PresetManager.h"
 
@@ -6,6 +7,10 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <cmath>
+#include <random>
+#include <vector>
 
 #include <algorithm>
 #include <vector>
@@ -633,4 +638,151 @@ TEST_CASE ("PresetManager: parameter-driven dirty tracking coexists safely with 
     }
 
     CHECK (manager.isDirty());
+}
+
+//==============================================================================
+// v0.3.0 preset assertions (brief section 6, T-PR2).
+
+#include "fixtures/preset_v020_values.h"
+
+namespace
+{
+    // Renders a short deterministic programme through `processor`.
+    juce::AudioBuffer<float> renderPresetProgramme (TenebraeAudioProcessor& processor,
+                                                    double sampleRate,
+                                                    int blockSize,
+                                                    int totalSamples)
+    {
+        processor.prepareToPlay (sampleRate, blockSize);
+
+        const auto usableSamples = (totalSamples / blockSize) * blockSize;
+
+        juce::AudioBuffer<float> result (2, usableSamples);
+        result.clear();
+
+        juce::AudioBuffer<float> block (2, blockSize);
+        juce::MidiBuffer midi;
+
+        std::mt19937 engine (0x9A9Au);
+        std::uniform_real_distribution<float> noise (-0.02f, 0.02f);
+
+        for (int position = 0; position < usableSamples; position += blockSize)
+        {
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const auto t = (position + i) / sampleRate;
+                const auto value = 0.4f * static_cast<float> (
+                                        std::sin (juce::MathConstants<double>::twoPi * 98.0 * t))
+                                    + noise (engine);
+
+                block.setSample (0, i, value);
+                block.setSample (1, i, value);
+            }
+
+            processor.processBlock (block, midi);
+
+            for (int channel = 0; channel < 2; ++channel)
+                result.copyFrom (channel, position, block, channel, 0, blockSize);
+        }
+
+        return result;
+    }
+}
+
+TEST_CASE ("T-PR2: the eight original factory presets still render exactly as their v0.2 values do",
+           "[preset][migration]")
+{
+    // The comparison is in-process A/B (brief section 6's platform note):
+    //   (a) a processor with the preset loaded through PresetManager, against
+    //   (b) a processor with the captured v0.2 parameter values set directly.
+    //
+    // Together with the byte-untouched preset JSONs and the untouched Classic
+    // DSP, that expresses "these presets still sound like they did" without a
+    // cross-binary reference - which does not exist, because a v0.2 binary's
+    // float render cannot be byte-reproduced by the v0.3 binary across the
+    // two-OS CI matrix.
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+    constexpr int totalSamples = 24576;
+
+    for (int index = 0; index < PresetV020Values::numPresets; ++index)
+    {
+        const auto& expected = PresetV020Values::presets[index];
+
+        // (a) through the preset system.
+        TenebraeAudioProcessor viaPresetManager;
+        const auto presets = viaPresetManager.presetManager.getAllPresets();
+
+        bool found = false;
+
+        for (const auto& preset : presets)
+            if (preset.name == juce::String (expected.displayName))
+                found = true;
+
+        INFO ("preset " << expected.displayName);
+        REQUIRE (found);
+        REQUIRE (viaPresetManager.presetManager.loadPreset (juce::String (expected.displayName)));
+
+        const auto presetRender = renderPresetProgramme (viaPresetManager, sampleRate, blockSize, totalSamples);
+
+        // (b) the captured v0.2 values, set directly.
+        TenebraeAudioProcessor viaCapturedValues;
+
+        for (int i = 0; i < 16; ++i)
+        {
+            auto* parameter = viaCapturedValues.apvts.getParameter (PresetV020Values::parameterIds[i]);
+            REQUIRE (parameter != nullptr);
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (expected.values[i]));
+        }
+
+        const auto capturedRender = renderPresetProgramme (viaCapturedValues, sampleRate, blockSize, totalSamples);
+
+        CHECK (TestHelpers::buffersAreByteIdentical (presetRender, capturedRender));
+    }
+}
+
+TEST_CASE ("T-PR2b: the factory bank has twelve presets and loads deterministically", "[preset]")
+{
+    TenebraeAudioProcessor processor;
+    const auto presets = processor.presetManager.getAllPresets();
+
+    int factoryCount = 0;
+
+    for (const auto& preset : presets)
+        if (preset.isFactory)
+            ++factoryCount;
+
+    // Eight from v0.2 plus four new ones showcasing the Triode engine.
+    CHECK (factoryCount == 12);
+
+    SECTION ("loading a preset twice gives identical parameter values")
+    {
+        for (const auto& preset : presets)
+        {
+            if (! preset.isFactory)
+                continue;
+
+            REQUIRE (processor.presetManager.loadPreset (preset.name));
+
+            std::vector<float> firstLoad;
+
+            for (auto* parameter : processor.getParameters())
+                firstLoad.push_back (parameter->getValue());
+
+            // Move everything away, then load again.
+            for (auto* parameter : processor.getParameters())
+                parameter->setValueNotifyingHost (0.25f);
+
+            REQUIRE (processor.presetManager.loadPreset (preset.name));
+
+            size_t i = 0;
+
+            for (auto* parameter : processor.getParameters())
+            {
+                INFO ("preset " << preset.name << ", parameter index " << i);
+                CHECK (parameter->getValue() == firstLoad[i]);
+                ++i;
+            }
+        }
+    }
 }

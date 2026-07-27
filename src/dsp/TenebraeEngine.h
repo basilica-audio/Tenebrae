@@ -4,7 +4,9 @@
 
 #include "CascadeStage.h"
 #include "Gate.h"
+#include "PowerAmp.h"
 #include "ToneStack.h"
+#include "TriodeCascade.h"
 
 #include <vector>
 
@@ -41,6 +43,26 @@
 class TenebraeEngine
 {
 public:
+    // v0.3.0: the engine branch. "Classic" runs the v0.2 signal path with
+    // byte-identical code (AsymmetricClipper/CascadeStage/8x IIR oversampler,
+    // all untouched by this release) - which is what makes migration of an
+    // existing session a provable no-op rather than a hopeful one. "Triode"
+    // runs the new stateful triode cascade plus the optional power-amp block.
+    enum class EngineMode
+    {
+        classic = 0,
+        triode = 1
+    };
+
+    // Oversampling quality for the Triode engine only. Classic keeps its own
+    // fixed 8x IIR path regardless of this setting.
+    enum class Quality
+    {
+        eco = 0,      // 2x polyphase IIR half-band  - near-zero latency, live
+        standard = 1, // 4x polyphase IIR half-band  - the default
+        hq = 2        // 8x equiripple FIR half-band - linear phase, mixdown
+    };
+
     TenebraeEngine();
 
     // Allocates all DSP state. Must be called (and completed) before the
@@ -111,6 +133,31 @@ public:
     // Tone Voice: forwarded to ToneStack::setToneVoice() - see there.
     void setToneVoice (int newToneVoiceIndex);
 
+    //==========================================================================
+    // v0.3.0 parameters. All of them are no-ops at their neutral defaults
+    // (Classic engine, power amp off, gate at v0.2 behaviour).
+
+    // Engine/Quality switching is allocation-free: every oversampling chain
+    // is built in prepare() and kept resident, so a switch swaps a branch and
+    // re-derives the (already-allocated) triode/power-amp coefficients for
+    // the new oversampled rate. Both change getLatencySamples(), which the
+    // processor re-reports from the message thread.
+    void setEngineMode (EngineMode newEngineMode);
+    void setQuality (Quality newQuality);
+
+    // Bias Shift, 0-200 % over the voicing's calibrated per-stage bias depths.
+    void setStageBiasPercent (float newBiasPercent);
+
+    void setPowerAmpOn (bool shouldBeOn);
+    void setResonanceDb (float newResonanceDb);
+    void setSagPercent (float newSagPercent);
+
+    // Gate v2 - see Gate.h. Each of these is neutral at its default.
+    void setGateKeySource (Gate::KeySource newKeySource);
+    void setGateHysteresisDb (float newHysteresisDb);
+    void setGateRange (float newRangeDb, bool isMute);
+    void setGateReleaseMode (Gate::ReleaseMode newReleaseMode);
+
     // Oversampling latency in samples, valid after prepare() has run.
     int getLatencySamples() const noexcept { return latencySamples; }
 
@@ -155,7 +202,24 @@ private:
 
     juce::dsp::Gain<float> preGain;
 
+    // Recomputes latency/DryWetMixer alignment and re-derives the triode/
+    // power-amp coefficients for the currently selected chain's oversampled
+    // rate. Allocation-free: every chain below is built in prepare().
+    void applyChainSelection (bool resetChainState);
+
+    // The oversampler the current engine/quality selection runs on.
+    juce::dsp::Oversampling<float>* getActiveOversampler() const noexcept;
+
+    // Classic's fixed 8x half-band polyphase IIR chain - untouched from v0.2,
+    // and deliberately kept as its own instance so the Classic path's filter
+    // state can never be perturbed by anything the Triode path does.
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
+
+    // The three Triode-engine chains, all built in prepare() and kept
+    // resident so that a Quality switch is a pointer swap (brief 3.3).
+    std::unique_ptr<juce::dsp::Oversampling<float>> triodeEcoOversampler;
+    std::unique_ptr<juce::dsp::Oversampling<float>> triodeStandardOversampler;
+    std::unique_ptr<juce::dsp::Oversampling<float>> triodeHqOversampler;
 
     // Fixed per-stage voicing (asymmetry, interstage HP/LP corner
     // frequencies, internal drive) is set up in the constructor/prepare() -
@@ -171,6 +235,12 @@ private:
     CascadeStage cascadeStage1Loose;
     CascadeStage cascadeStage2Loose;
     CascadeStage cascadeStage3Loose;
+
+    // v0.3.0 Triode engine: the stateful three-stage triode chain (both
+    // voicings resident) and the optional power-amp block. Both live inside
+    // the oversampled region, exactly like the Classic cascade.
+    TriodeCascade triodeCascade;
+    PowerAmp powerAmp;
 
     ToneStack toneStack;
 
@@ -241,6 +311,48 @@ private:
     // unchanged value from processBlock() every block.
     int currentVoicing = 0;
     bool brightEnabled = false;
+
+    //==========================================================================
+    // v0.3.0 state.
+
+    EngineMode engineMode = EngineMode::classic;
+    Quality quality = Quality::standard;
+    bool powerAmpOn = false;
+
+    // Set by setEngineMode()/setQuality() and consumed at the top of the next
+    // processChunk(), so the (bounded, allocation-free) coefficient rebuild
+    // happens at a block boundary rather than mid-block.
+    bool chainSelectionDirty = false;
+
+    // Pre-distortion copy of the incoming block, captured before the Tight
+    // HPF, used by the gate's Pre key tap (Gate.h). Sized in prepare().
+    juce::AudioBuffer<float> gateKeyBuffer;
+    std::vector<const float*> gateKeyPointers;
+
+    // Click suppression on an engine/quality swap: the freshly-reset chain
+    // starts from zero state, so the first samples out of it are ramped in
+    // rather than stitched onto whatever the previous chain left behind.
+    //
+    // DEVIATION FROM THE BRIEF (recorded in the PR): the brief specifies a
+    // 16-sample crossfade. 16 samples is 0.33 ms at 48 kHz, which is shorter
+    // than the transient a half-band polyphase IIR produces when its state is
+    // reset mid-signal - the tail of that transient rang straight through the
+    // fade and came out of the (nonlinear, 32 dB-of-gain) cascade as a peak
+    // 2.3x the settled level, which tests/LatencyTests.cpp (T-L2) measures.
+    // The fade is 2 ms instead, computed in prepare() so it is the same
+    // duration at every sample rate. Still far too short to be heard as a
+    // fade, and long enough to actually do its job.
+    static constexpr double chainSwapFadeSeconds = 0.002;
+    int chainSwapFadeSamples = 16;
+    int chainSwapFadeCounter = 0;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> stageBiasSmoothed;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> resonanceSmoothed;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> sagSmoothed;
+
+    float lastStageBiasScale = 1.0f;
+    float lastResonanceDb = 0.0f;
+    float lastSagAmount = 0.0f;
 
     int latencySamples = 0;
 

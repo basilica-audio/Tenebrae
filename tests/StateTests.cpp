@@ -1,8 +1,14 @@
 #include "PluginProcessor.h"
 #include "params/ParameterIds.h"
+#include "TestHelpers.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <cmath>
+#include <memory>
+#include <random>
+#include <vector>
 
 TEST_CASE ("State round-trip preserves non-default values of every parameter", "[state]")
 {
@@ -222,4 +228,250 @@ TEST_CASE ("State round-trip: an old v0.1.0-style state tree (missing Presence/G
     CHECK (gateThresholdParam->getValue() == Catch::Approx (gateThresholdParam->getDefaultValue()).margin (1.0e-6));
     CHECK (gateOnParam->getValue() == Catch::Approx (gateOnParam->getDefaultValue()).margin (1.0e-6));
     CHECK (gateOnParam->getValue() > 0.5f); // Gate defaults to ON - see design-brief.md section 5
+}
+
+//==============================================================================
+// v0.3.0 state migration (brief section 6, T-S1/T-S2).
+
+namespace
+{
+    // Loads the committed v0.2.0 state fixture (tests/fixtures/state_v020.xml).
+    // The path comes from a compile definition set in CMakeLists.txt, so this
+    // works regardless of ctest's working directory.
+    juce::String loadV020StateFixture()
+    {
+        const juce::File fixture (juce::String (TENEBRAE_TEST_FIXTURE_DIR) + "/state_v020.xml");
+        return fixture.existsAsFile() ? fixture.loadFileAsString() : juce::String();
+    }
+
+    // Applies an XML state to a processor exactly the way a host would: via
+    // setStateInformation(), through the binary wrapper.
+    void applyStateXml (TenebraeAudioProcessor& processor, const juce::String& xmlText)
+    {
+        const std::unique_ptr<juce::XmlElement> xml (juce::XmlDocument::parse (xmlText));
+        REQUIRE (xml != nullptr);
+
+        juce::MemoryBlock block;
+        juce::AudioProcessor::copyXmlToBinary (*xml, block);
+        processor.setStateInformation (block.getData(), static_cast<int> (block.getSize()));
+    }
+
+    // A 5 s deterministic programme: a sine burst, a noise bed, and silence -
+    // enough to exercise the cascade, the gate's open/hold/release path and
+    // the dry/wet alignment in a single render.
+    juce::AudioBuffer<float> renderMigrationProgramme (TenebraeAudioProcessor& processor,
+                                                       double sampleRate,
+                                                       int blockSize)
+    {
+        processor.prepareToPlay (sampleRate, blockSize);
+
+        const auto totalSamples = (static_cast<int> (sampleRate * 5.0) / blockSize) * blockSize;
+
+        juce::AudioBuffer<float> result (2, totalSamples);
+        result.clear();
+
+        juce::AudioBuffer<float> block (2, blockSize);
+        juce::MidiBuffer midi;
+
+        std::mt19937 engine (0x7E7Eu);
+        std::uniform_real_distribution<float> noise (-0.01f, 0.01f);
+
+        for (int position = 0; position < totalSamples; position += blockSize)
+        {
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const auto index = position + i;
+                const auto t = index / sampleRate;
+
+                // 0.0-2.0 s: 110 Hz burst. 2.0-3.5 s: noise bed only.
+                // 3.5-5.0 s: silence.
+                float value = noise (engine);
+
+                if (t < 2.0)
+                    value += 0.5f * static_cast<float> (
+                        std::sin (juce::MathConstants<double>::twoPi * 110.0 * t));
+                else if (t >= 3.5)
+                    value = 0.0f;
+
+                block.setSample (0, i, value);
+                block.setSample (1, i, value);
+            }
+
+            processor.processBlock (block, midi);
+
+            for (int channel = 0; channel < 2; ++channel)
+                result.copyFrom (channel, position, block, channel, 0, blockSize);
+        }
+
+        return result;
+    }
+}
+
+TEST_CASE ("T-S1: a v0.2.0 session state renders byte-identically to the v0.3.0 defaults", "[state][migration]")
+{
+    // THE RELEASE GATE. Ten new parameters were added; every one of them is
+    // specified to be neutral at its default; a v0.2 session carries none of
+    // them and therefore loads them all at those defaults. If that is true,
+    // a processor that loaded a v0.2 state and a fresh processor at its own
+    // defaults must produce the same samples - not similar, the same.
+    //
+    // Both renders are produced inside this process, which is the only place
+    // byte equality is meaningful (brief section 6's platform note).
+    const auto fixtureXml = loadV020StateFixture();
+    REQUIRE (fixtureXml.isNotEmpty());
+
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+
+    TenebraeAudioProcessor migrated;
+    applyStateXml (migrated, fixtureXml);
+    const auto migratedRender = renderMigrationProgramme (migrated, sampleRate, blockSize);
+
+    TenebraeAudioProcessor fresh;
+    const auto freshRender = renderMigrationProgramme (fresh, sampleRate, blockSize);
+
+    CHECK (TestHelpers::buffersAreByteIdentical (migratedRender, freshRender));
+
+    SECTION ("and the migrated state really is missing the new IDs")
+    {
+        // Guards the fixture itself: if someone "helpfully" adds the v0.3.0
+        // IDs to it, the test above would still pass while no longer testing
+        // migration at all.
+        const std::unique_ptr<juce::XmlElement> xml (juce::XmlDocument::parse (fixtureXml));
+        REQUIRE (xml != nullptr);
+
+        int paramCount = 0;
+
+        for (auto* child : xml->getChildIterator())
+            if (child->hasTagName ("PARAM"))
+                ++paramCount;
+
+        CHECK (paramCount == 16);
+        CHECK (! xml->hasAttribute (TenebraeAudioProcessor::stateSchemaAttribute));
+
+        static constexpr const char* newIds[] = {
+            ParamIDs::engine, ParamIDs::quality, ParamIDs::stageBias, ParamIDs::powerAmp,
+            ParamIDs::resonance, ParamIDs::sag, ParamIDs::gateKey, ParamIDs::gateHysteresis,
+            ParamIDs::gateRange, ParamIDs::gateReleaseMode
+        };
+
+        for (const auto* id : newIds)
+        {
+            bool found = false;
+
+            for (auto* child : xml->getChildIterator())
+                if (child->hasTagName ("PARAM") && child->getStringAttribute ("id") == id)
+                    found = true;
+
+            INFO ("fixture unexpectedly contains " << id);
+            CHECK (! found);
+        }
+    }
+
+    SECTION ("and every new parameter did land on its documented neutral default")
+    {
+        struct Expectation { const char* id; float value; };
+
+        for (const auto& expectation : { Expectation { ParamIDs::engine, 0.0f },        // Classic
+                                         Expectation { ParamIDs::quality, 1.0f },       // Standard
+                                         Expectation { ParamIDs::stageBias, 100.0f },
+                                         Expectation { ParamIDs::powerAmp, 0.0f },      // Off
+                                         Expectation { ParamIDs::resonance, 0.0f },
+                                         Expectation { ParamIDs::sag, 0.0f },
+                                         Expectation { ParamIDs::gateKey, 0.0f },       // Post
+                                         Expectation { ParamIDs::gateHysteresis, 0.0f },
+                                         Expectation { ParamIDs::gateRange, 90.0f },    // Mute
+                                         Expectation { ParamIDs::gateReleaseMode, 0.0f } }) // Manual
+        {
+            auto* parameter = migrated.apvts.getParameter (expectation.id);
+            REQUIRE (parameter != nullptr);
+
+            INFO ("parameter " << expectation.id);
+            CHECK (parameter->convertFrom0to1 (parameter->getValue())
+                    == Catch::Approx (expectation.value).margin (1.0e-4));
+        }
+    }
+}
+
+TEST_CASE ("T-S2: v0.3.0 stamps stateSchema on save and still loads unstamped states", "[state][migration]")
+{
+    SECTION ("saving writes stateSchema = 3")
+    {
+        TenebraeAudioProcessor processor;
+
+        juce::MemoryBlock saved;
+        processor.getStateInformation (saved);
+
+        const std::unique_ptr<juce::XmlElement> xml (
+            juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize())));
+        REQUIRE (xml != nullptr);
+
+        CHECK (xml->hasAttribute (TenebraeAudioProcessor::stateSchemaAttribute));
+        CHECK (xml->getStringAttribute (TenebraeAudioProcessor::stateSchemaAttribute)
+                == TenebraeAudioProcessor::stateSchemaVersion);
+    }
+
+    SECTION ("a state with no stateSchema attribute loads without error")
+    {
+        const auto fixtureXml = loadV020StateFixture();
+        REQUIRE (fixtureXml.isNotEmpty());
+
+        TenebraeAudioProcessor processor;
+        CHECK_NOTHROW (applyStateXml (processor, fixtureXml));
+
+        // And the old values survived the load.
+        auto* tight = processor.apvts.getParameter (ParamIDs::tight);
+        REQUIRE (tight != nullptr);
+        CHECK (tight->convertFrom0to1 (tight->getValue()) == Catch::Approx (90.0f).margin (0.01));
+    }
+
+    SECTION ("a round trip through save and load preserves all 26 parameters")
+    {
+        TenebraeAudioProcessor source;
+
+        // Move every parameter off its default so the round trip has
+        // something to lose.
+        struct Setting { const char* id; float value; };
+
+        const std::vector<Setting> settings = {
+            { ParamIDs::tight, 150.0f },      { ParamIDs::gain, 31.0f },
+            { ParamIDs::bass, -4.0f },        { ParamIDs::mid, 5.0f },
+            { ParamIDs::treble, 3.0f },       { ParamIDs::level, -2.0f },
+            { ParamIDs::mix, 80.0f },         { ParamIDs::voicing, 1.0f },
+            { ParamIDs::bright, 1.0f },       { ParamIDs::toneVoice, 2.0f },
+            { ParamIDs::presence, 4.0f },     { ParamIDs::gateThreshold, -35.0f },
+            { ParamIDs::gateAttack, 3.0f },   { ParamIDs::gateHold, 60.0f },
+            { ParamIDs::gateRelease, 400.0f },{ ParamIDs::gateOn, 0.0f },
+            { ParamIDs::engine, 1.0f },       { ParamIDs::quality, 2.0f },
+            { ParamIDs::stageBias, 160.0f },  { ParamIDs::powerAmp, 1.0f },
+            { ParamIDs::resonance, 7.5f },    { ParamIDs::sag, 45.0f },
+            { ParamIDs::gateKey, 1.0f },      { ParamIDs::gateHysteresis, 5.0f },
+            { ParamIDs::gateRange, 40.0f },   { ParamIDs::gateReleaseMode, 1.0f },
+        };
+
+        CHECK (static_cast<int> (settings.size()) == source.getParameters().size());
+
+        for (const auto& setting : settings)
+        {
+            auto* parameter = source.apvts.getParameter (setting.id);
+            REQUIRE (parameter != nullptr);
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (setting.value));
+        }
+
+        juce::MemoryBlock saved;
+        source.getStateInformation (saved);
+
+        TenebraeAudioProcessor destination;
+        destination.setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+
+        for (const auto& setting : settings)
+        {
+            auto* parameter = destination.apvts.getParameter (setting.id);
+            REQUIRE (parameter != nullptr);
+
+            INFO ("parameter " << setting.id);
+            CHECK (parameter->convertFrom0to1 (parameter->getValue())
+                    == Catch::Approx (setting.value).margin (0.05));
+        }
+    }
 }

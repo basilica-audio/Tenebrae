@@ -7,6 +7,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-27
+
+The "stateful triode engine" release. v0.2.0 shipped a static `tanh` cascade; v0.3.0 adds a second,
+selectable engine built from solved 12AX7 stage equations with the time-variant behaviour a
+memoryless waveshaper cannot produce - dynamic bias shift, blocking-distortion recovery,
+frequency-dependent cathode drive and Miller interstage filtering - plus a negative-feedback
+power-amp block and a substantially more capable gate.
+
+**Nothing about an existing session changes.** All ten new parameters default to neutral, the
+Classic engine's code is untouched, and a v0.2.0 session state renders *byte-identically* to a fresh
+v0.3.0 instance at its defaults. That is a test, not a hope: `T-S1` in `tests/StateTests.cpp`
+renders both in the same process and compares the floats bit for bit, and `T-PR2` does the same for
+each of the eight original factory presets.
+
+### Added
+
+- **Engine** (Classic / Triode, default **Classic**, not automatable): selects the tone-generating
+  core. Classic is the v0.2.0 path with its code unchanged. Triode is the new three-stage stateful
+  engine. Not automatable because it changes the reported latency.
+- **Triode engine** — three stateful triode stages per channel, built from the Dempwolf–Zölzer
+  12AX7 model (DAFx-11, Table 1 "RSD-1" fit). At `prepare()` each stage solves its own DC operating
+  point (grid at 0 V through the grid leak, cathode cap open) and then a 2048-point static plate
+  curve, with the grid stopper in circuit so grid conduction compresses the positive swing the way
+  the circuit does. Around that curve sit the three things a static waveshaper cannot do:
+  - **dynamic bias shift / blocking distortion** — rectified grid overshoot charges the coupling
+    cap fast and bleeds off over ~20 ms, biasing the stage toward cutoff after an overload. This is
+    what makes palm mutes feel compressed and cranked stages "breathe" per note.
+  - **cathode bypass** — Rk‖Ck only bypasses above its corner, so bass sees local feedback and stays
+    cleaner while mids and treble get the full stage gain. The Tight voicing uses the 1k5 / 0.68 µF
+    pairing (a real, measurable bass-versus-treble drive difference); Loose uses 820R / 25 µF, which
+    bypasses the whole band. Plus a slow bloom follower.
+  - **Miller interstage low-pass** — a one-pole per stage from Cin = Cgk + Cag·(1+|A|) against the
+    source impedance.
+  Both voicing tables (Tight/Loose) are built at `prepare()` and kept resident, so the Voicing
+  switch stays a branch. Stage polarity alternates, as it does in the circuit, with a single ×(−1)
+  normalisation at the cascade output so the wet path stays aligned with the dry path and with
+  Classic.
+- **Quality** (Eco 2× / Standard 4× / HQ 8×, default **Standard**, not automatable): oversampling
+  for the Triode engine only. Eco and Standard use polyphase IIR half-bands for near-zero
+  low-frequency latency; HQ uses an equiripple FIR for linear phase. All four chains (including
+  Classic's 8×) are built at `prepare()` and stay resident, so switching is a pointer swap plus an
+  in-place coefficient rebuild — measured at zero additional allocations.
+- **First-order ADAA** on every Triode-engine shaper. The stage LUT stores its interpolant as cubic
+  Hermite segments and evaluates the antiderivative as the *exact quartic antiderivative of those
+  same segments*, so F1′ ≡ S identically. (Tabulating F1 independently would leave a mismatch that
+  the divided difference amplifies by 1/Δ, landing broadband junk in the −60…−90 dB range.)
+- **Power Amp** (off by default) with **Resonance** (0…12 dB) and **Sag** (0…100 %): a global
+  negative-feedback loop around an ADAA output-transformer saturator. Resonance and Presence act as
+  cut-only shelves in the *feedback return path*, which is where a real amp's Depth and Presence
+  controls live — cutting the return raises the closed-loop gain in that band. Sag lets the output
+  envelope squeeze the transformer's headroom, giving gain droop and recovery per note. With Power
+  Amp on, Presence moves to the return path and the post-EQ shelf is structurally bypassed.
+  The loop's small-signal gain is bounded at 0.5 by design — at least 6 dB of margin at *every*
+  frequency up to the oversampled Nyquist — asserted at `prepare()` and gated in CI.
+- **Bias Shift** (0–200 %, default 100 %): scales all three stages' dynamic-bias depths.
+- **Gate v2** — a strict superset of the v0.2 gate. Four new controls, each a no-op at its default:
+  - **Gate Key** (Post / Pre, default Post): keys the detector from a pre-distortion copy of the
+    input through an 80 Hz – 8 kHz detector band-pass. A cascade at high gain compresses the
+    30 dB difference between "noise floor" and "playing" down to a few dB by the time the gate sees
+    it, which is why a post-distortion detector cannot separate them; the pre tap keeps the full
+    range.
+  - **Gate Hysteresis** (0–12 dB, default 0): separate open and close thresholds.
+  - **Gate Range** (20–90 dB, default **Mute**): a finite closed-state floor instead of a hard mute.
+  - **Gate Release Mode** (Manual / Auto, default Manual): a two-envelope race that distinguishes a
+    note that stopped from a note that is decaying, fading at the note's own measured decay rate
+    plus a small margin rather than at a fixed one.
+- Four factory presets for the new engine: **Triode Foundation**, **Sagging Doom**,
+  **Feedback Tight Rhythm** and **Adaptive Gate Chug**. The eight v0.2.0 presets are byte-untouched.
+- `stateSchema="3"` is stamped on the APVTS root when saving. Migration itself stays purely additive
+  (an absent ID falls back to its default), so nothing reads the attribute to decide how to load —
+  it exists so a future non-additive change has an unambiguous discriminator.
+
+### Changed
+
+- Engine and Quality switches now reset every nonlinear chain, not only the one being switched to,
+  and the swap fade is 2 ms rather than 16 samples. A chain switched away from and back to was
+  resuming from seconds-old state, and 16 samples is shorter than a half-band IIR's own reset
+  transient; together these took the worst mid-stream switch peak from 1.65 to 1.27.
+- A non-finite input sample is now replaced at the engine boundary. Previously a single Inf or NaN
+  latched permanently in the one-pole and IIR states and every subsequent block came out NaN, even
+  after the input went clean again. Finite input is passed through untouched.
+- The editor wraps onto a second row for the new controls. Still the plain pre-M3 layout.
+
+### Measured
+
+Numbers CI computes, not estimates. Alias-to-signal ratio at 36 dB pre-gain (48 kHz, 2^18 FFT,
+Blackman-Harris), against the same cascade run with no oversampling and no ADAA:
+
+| f0 | naive | Eco (2×) | Standard (4×) | HQ (8×) |
+|---|---|---|---|---|
+| 1244 Hz | −39.4 dB | −76.8 dB | −88.6 dB | −90.3 dB |
+| 2489 Hz | −28.5 dB | −59.3 dB | −83.1 dB | −89.4 dB |
+| 4978 Hz | −14.5 dB | −47.9 dB | −61.6 dB | −77.6 dB |
+| 9956 Hz | −5.9 dB | −18.0 dB | −38.4 dB | −54.7 dB |
+
+Swept-sine (20 Hz – 10 kHz at −8 dBFS, 40 dB pre-gain) worst masked residual: **−67.7 dBFS**
+(Standard), **−83.0 dBFS** (HQ). Above roughly 2.5 kHz the floor is set by the stock half-band
+decimation stopband rather than by the shapers; closing that needs the steeper suite-wide
+oversampler that is on the roadmap, not in this release.
+
+Also asserted: the Dempwolf equations against their published form; DC operating points
+(Tight 1.475 V / 201.7 V, Loose 1.05 V / 171.9 V); Tier B against an inline Tier A reference solve
+(−164 dB RMS residual at −20 dBFS); bias-shift suppression and its fitted ~20 ms recovery; the
+cathode shelf against its analytic response; sample-rate invariance at 44.1 k versus 96 k; wet/dry
+and Classic/Triode polarity; the power-amp loop-gain bound across the full shelf grid at every
+oversampled rate; sag depth (1.9 dB) and its 5 ms / 120 ms constants; the gate's superset identity,
+hysteresis, chatter immunity, range floor, program-dependent release slope and hold behaviour;
+reported latency equal to measured impulse delay in every engine/quality combination; and zero
+allocations added by any v0.3.0 path.
+
+### Known issues
+
+- `processBlock` allocates four times per block, unchanged from v0.2.0:
+  `juce::dsp::IIR::Coefficients::makeXxx` heap-allocates, and the engine rebuilds the Tight
+  high-pass plus the tone stack's three bands every block. Fixing it means rewriting those
+  coefficient updates in place, which touches the Classic path and is therefore deferred to a change
+  that can re-establish the bit-identity guarantee alongside it. `T-X1` measures this baseline and
+  gates on the delta, so no new code can add to it.
+- The macOS release workflow is still blocked on an org-level signing-secret visibility issue.
+  Windows release assets are unaffected.
+
+### Third-party
+
+None added. All the mathematics is implemented from the cited papers. JUCE 8.0.14 and Catch2
+v3.15.2 (BSL-1.0, tests only) are unchanged.
+
 ## [0.2.0] - 2026-07-16
 
 Research-derived deep-dive rework against the reference class of high-gain cascaded rhythm-guitar

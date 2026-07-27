@@ -78,4 +78,61 @@ namespace ParamIDs
     // research is unanimous that a gate is a structural expectation of
     // "tight chug" tone in this genre, not an optional add-on.
     inline constexpr auto gateOn = "gateOn";
+
+    // v0.3.0 additions - appended below the frozen v0.1/v0.2 blocks above,
+    // per this file's own "IDs never change, more may be added" contract.
+    //
+    // Every one of these defaults to a NEUTRAL value, so a v0.2 session (which
+    // contains none of them) loads with the Classic engine, the power amp off
+    // and the gate at its legacy behaviour, and therefore renders exactly as
+    // it did before. tests/StateTests.cpp (T-S1) is the release gate on that.
+
+    // Engine: selects the whole tone-generating core. "Classic" is the
+    // untouched v0.2 path (asymmetric-tanh cascade at 8x); "Triode" is the
+    // v0.3.0 stateful triode-stage engine (see src/dsp/TriodeCascade.h).
+    // Not automatable - it changes the reported latency.
+    inline constexpr auto engine = "engine";
+
+    // Quality: oversampling factor/filter family for the Triode engine only
+    // (Eco 2x IIR / Standard 4x IIR / HQ 8x linear-phase FIR). Inert while
+    // the Classic engine is selected, which keeps its own fixed 8x path.
+    // Not automatable - it changes the reported latency.
+    inline constexpr auto quality = "quality";
+
+    // Bias Shift: scales all three triode stages' dynamic-bias depths, i.e.
+    // how much blocking distortion / post-overload cutoff the cascade shows.
+    // 100 % is the voicing's own calibrated depth.
+    inline constexpr auto stageBias = "stageBias";
+
+    // Power Amp: engages the negative-feedback power-amp block (output
+    // transformer saturation + Resonance/Presence in the feedback return
+    // path + supply sag). Off by default; when off the signal path is
+    // structurally identical to v0.2's.
+    inline constexpr auto powerAmp = "powerAmp";
+
+    // Resonance: low-frequency feedback depth of the power-amp block - the
+    // genre-defining low-end "depth" control. 0 dB is neutral.
+    inline constexpr auto resonance = "resonance";
+
+    // Sag: supply-sag depth, modulating the output transformer's headroom
+    // from the output envelope. 0 % is neutral.
+    inline constexpr auto sag = "sag";
+
+    // Gate Key: where the gate's detector reads from - "Post" is the v0.2
+    // behaviour (the gated signal itself), "Pre" taps a pre-distortion copy
+    // of the plugin input through a fixed detector band-pass.
+    inline constexpr auto gateKey = "gateKey";
+
+    // Gate Hysteresis: the gap between the gate's open and close thresholds.
+    // 0 dB collapses to v0.2's single threshold.
+    inline constexpr auto gateHysteresis = "gateHysteresis";
+
+    // Gate Range: the gate's closed-state floor in dB of attenuation. The
+    // parameter's maximum position is "Mute" (a hard zero), which is the
+    // v0.2 behaviour and the default.
+    inline constexpr auto gateRange = "gateRange";
+
+    // Gate Release Mode: "Manual" is v0.2's fixed one-pole release driven by
+    // Gate Release; "Auto" is the program-dependent dual-envelope release.
+    inline constexpr auto gateReleaseMode = "gateReleaseMode";
 }

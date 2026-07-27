@@ -67,6 +67,21 @@ private:
     Knob gateReleaseKnob;
     juce::ToggleButton gateOnButton;
     std::unique_ptr<ButtonAttachment> gateOnAttachment;
+    // v0.3.0 additions (brief section 5: "minimal - new params wired into the
+    // existing pre-M3 generic layout, attachment + label only"). The
+    // photoreal M3 GUI lives on its own branches and is untouched here.
+    Choice engineChoice;
+    Choice qualityChoice;
+    Knob stageBiasKnob;
+    juce::ToggleButton powerAmpButton;
+    std::unique_ptr<ButtonAttachment> powerAmpAttachment;
+    Knob resonanceKnob;
+    Knob sagKnob;
+    Choice gateKeyChoice;
+    Knob gateHysteresisKnob;
+    Knob gateRangeKnob;
+    Choice gateReleaseModeChoice;
+
     Knob levelKnob;
     Knob mixKnob;
 

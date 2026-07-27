@@ -61,15 +61,23 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
             ParamIDs::voicing, ParamIDs::bright, ParamIDs::toneVoice,
             ParamIDs::presence, ParamIDs::gateThreshold, ParamIDs::gateAttack,
             ParamIDs::gateHold, ParamIDs::gateRelease, ParamIDs::gateOn,
+            ParamIDs::engine, ParamIDs::quality, ParamIDs::stageBias,
+            ParamIDs::powerAmp, ParamIDs::resonance, ParamIDs::sag,
+            ParamIDs::gateKey, ParamIDs::gateHysteresis, ParamIDs::gateRange,
+            ParamIDs::gateReleaseMode,
         };
 
         for (const auto* id : allIds)
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.2.0 layout (M1's 10 + v0.2.0's 6 new)")
+    SECTION ("total parameter count matches the v0.3.0 layout (M1's 10 + v0.2.0's 6 + v0.3.0's 10)")
     {
-        CHECK (apvts.processor.getParameters().size() == 16);
+        // T-PR1 (brief section 6). The count is asserted exactly, not as a
+        // lower bound: the frozen-ID contract in ParameterIds.h means the
+        // layout only ever grows, and an unnoticed growth is exactly what
+        // this guards against.
+        CHECK (apvts.processor.getParameters().size() == 26);
     }
 
     SECTION ("Tight: high-pass pre-emphasis defaults and range")
