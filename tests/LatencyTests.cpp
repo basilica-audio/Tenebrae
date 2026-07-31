@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "dsp/TenebraeEngine.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -310,4 +311,116 @@ TEST_CASE ("T-L2: switching quality mid-stream stays finite, click-free and re-r
 
     INFO ("distinct reported latencies across the switch cycle: " << distinct.size());
     CHECK (distinct.size() >= 3);
+}
+
+//==============================================================================
+// Suite-wide hardening wave: sample-rate matrix reprepare.
+//
+// Broader than "Latency updates correctly when the sample rate changes"
+// above: this drives one processor instance through a full
+// 44.1k -> 96k -> 192k reprepare matrix, crossing small AND large block
+// sizes and mono/stereo bus layouts along the way, with automation-like
+// parameter churn between reprepares. Engine/Quality are deliberately left
+// untouched here (they are documented non-automatable, latency-affecting
+// switches re-reported via the message-thread LatencyReporter timer - see
+// T-L2 above and PluginProcessor.h) - this test's job is prepareToPlay()
+// itself, which sets latency synchronously (PluginProcessor.cpp:
+// `setLatencySamples (engine.getLatencySamples())`), so every reprepare
+// below must observe the new latency immediately, with no dispatch-loop
+// pump required. Deterministic and block counts kept small so this stays
+// well under 30s even on Debug/CI.
+TEST_CASE ("Sample-rate matrix reprepare: 44.1k -> 96k -> 192k across block sizes and bus "
+           "layouts survives parameter automation and reports correct latency every time",
+           "[latency][robustness][samplerate][reprepare]")
+{
+    TenebraeAudioProcessor processor;
+    juce::MidiBuffer midi;
+
+    setLatencyTestParam (processor, ParamIDs::gain, 22.0f);
+    setLatencyTestParam (processor, ParamIDs::tight, 120.0f);
+    setLatencyTestParam (processor, ParamIDs::bass, 4.0f);
+    setLatencyTestParam (processor, ParamIDs::treble, -3.0f);
+    setLatencyTestParam (processor, ParamIDs::level, -2.0f);
+    setLatencyTestParam (processor, ParamIDs::mix, 80.0f);
+
+    auto* gainParam = processor.apvts.getParameter (ParamIDs::gain);
+    REQUIRE (gainParam != nullptr);
+
+    // Tracks what Gain's value ought to be at the start of each iteration -
+    // seeded from the setLatencyTestParam() above, then updated to the last
+    // value the automation loop below left it at, so each reprepare's
+    // "did the value survive" check is against ground truth rather than a
+    // stale constant.
+    auto expectedGainValue = gainParam->convertFrom0to1 (gainParam->getValue());
+
+    struct Step
+    {
+        double sampleRate;
+        int blockSize;
+        int numChannels;
+    };
+
+    // Small AND large blocks at both 96k and 192k, plus a mono layout
+    // change thrown in at 192k (Tenebrae supports mono -
+    // isBusesLayoutSupported() accepts mono or stereo in == out) to make
+    // sure a channel-count change riding along with a sample-rate reprepare
+    // doesn't trip anything up.
+    static constexpr Step steps[] = {
+        { 44100.0,  32,   2 },
+        { 96000.0,  32,   2 },
+        { 96000.0,  2048, 2 },
+        { 192000.0, 32,   1 },
+        { 192000.0, 2048, 2 },
+    };
+
+    for (const auto& step : steps)
+    {
+        if (step.numChannels == 1)
+        {
+            juce::AudioProcessor::BusesLayout monoLayout;
+            monoLayout.inputBuses.add (juce::AudioChannelSet::mono());
+            monoLayout.outputBuses.add (juce::AudioChannelSet::mono());
+            REQUIRE (processor.setBusesLayout (monoLayout));
+        }
+        else
+        {
+            juce::AudioProcessor::BusesLayout stereoLayout;
+            stereoLayout.inputBuses.add (juce::AudioChannelSet::stereo());
+            stereoLayout.outputBuses.add (juce::AudioChannelSet::stereo());
+            REQUIRE (processor.setBusesLayout (stereoLayout));
+        }
+
+        processor.prepareToPlay (step.sampleRate, step.blockSize);
+
+        // Latency must be reported (and positive - 8x oversampling always
+        // adds some) after every single reprepare in the matrix, not just
+        // the first one.
+        CHECK (processor.getLatencySamples() > 0);
+
+        // State survival: prepareToPlay() must never reset APVTS parameter
+        // values, at any sample rate/block-size/layout combination.
+        CHECK (gainParam->convertFrom0to1 (gainParam->getValue())
+               == Catch::Approx (expectedGainValue).margin (0.01f));
+
+        juce::AudioBuffer<float> buffer (step.numChannels, step.blockSize);
+
+        for (int block = 0; block < 4; ++block)
+        {
+            // Automation-like parameter churn while processing, mimicking a
+            // host sweeping controls mid-stream between reprepares.
+            const auto sweep = static_cast<float> (block) / 4.0f;
+            expectedGainValue = 5.0f + sweep * 30.0f;
+            setLatencyTestParam (processor, ParamIDs::gain, expectedGainValue);
+            setLatencyTestParam (processor, ParamIDs::bass, -12.0f + sweep * 24.0f);
+            setLatencyTestParam (processor, ParamIDs::mid, -12.0f + sweep * 24.0f);
+            setLatencyTestParam (processor, ParamIDs::treble, -12.0f + sweep * 24.0f);
+            setLatencyTestParam (processor, ParamIDs::presence, -6.0f + sweep * 12.0f);
+
+            TestHelpers::fillWithSine (buffer, step.sampleRate, 220.0, 0.6f,
+                                       static_cast<juce::int64> (block) * step.blockSize);
+
+            CHECK_NOTHROW (processor.processBlock (buffer, midi));
+            CHECK (TestHelpers::allSamplesFinite (buffer));
+        }
+    }
 }

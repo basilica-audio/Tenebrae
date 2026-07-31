@@ -315,6 +315,49 @@ void operator delete[] (void* pointer, std::size_t) noexcept
     std::free (pointer);
 }
 
+//==============================================================================
+// Suite-wide hardening wave: the allocation guard itself works.
+//
+// T-X1 below (and every other TestHelpers::AllocationGuard consumer) reasons
+// from the assumption that the operator new/delete pair above is actually
+// being hit. That assumption is worth proving directly rather than trusting
+// implicitly - a guard that silently stopped counting (e.g. after a future
+// refactor of the atomics above) would make every CHECK(guard.getAllocation
+// Count() == ...) elsewhere in this file pass vacuously.
+//
+// The obvious way to write that proof, `new float[64]; delete[] ...;`, is
+// NOT reliable: [expr.new] explicitly permits an implementation to elide a
+// new-expression's allocation when its storage is never observably used, and
+// Clang does exactly that at -O2 - which would make a naive version of this
+// test pass while testing nothing. To defeat the elision, the storage is
+// obtained through a direct call to the replaced `::operator new` (a plain
+// function call, not a new-expression, so the elision permission in
+// [expr.new] does not apply) and then written through a volatile pointer,
+// which makes the allocation observably used and therefore impossible for
+// the optimiser to remove. Same technique as sibling plugins requiem
+// (tests/EngineTests.cpp, "6.12 The allocation guard itself works") and
+// triptych (tests/RobustnessTests.cpp, "The allocation guard itself works").
+TEST_CASE ("The allocation guard itself works", "[robustness][allocation]")
+{
+    {
+        const TestHelpers::AllocationGuard guard;
+        auto* deliberate = static_cast<float*> (::operator new (64 * sizeof (float)));
+        *static_cast<volatile float*> (deliberate) = 1.0f;
+        ::operator delete (deliberate);
+        CHECK (guard.getAllocationCount() > 0);
+    }
+
+    {
+        const TestHelpers::AllocationGuard guard;
+        volatile auto sum = 0.0f;
+
+        for (int i = 0; i < 1000; ++i)
+            sum = sum + static_cast<float> (i);
+
+        CHECK (guard.getAllocationCount() == 0);
+    }
+}
+
 namespace
 {
     // Drives `processor` for `numBlocks` blocks of a musical programme.
