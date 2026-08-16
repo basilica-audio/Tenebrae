@@ -67,7 +67,23 @@ public:
     // already uses.
     basilica::presets::PresetManager presetManager;
 
+    //==========================================================================
+    // M3 GUI metering: the two VU dials' own readings (left = input level,
+    // right = output level - see docs/gui-mapping.md). Relaxed-atomic
+    // store/load, written once per block from the audio thread in
+    // processBlock() (silentium's AnalogMeter pattern, see that repo's
+    // PluginProcessor.cpp), read from the message thread by the editor's own
+    // polling timer - real-time safe in both directions (no locks, no
+    // allocation).
+    float getCurrentInputLevelDb() const noexcept { return currentInputLevelDb.load (std::memory_order_relaxed); }
+    float getCurrentOutputLevelDb() const noexcept { return currentOutputLevelDb.load (std::memory_order_relaxed); }
+
 private:
+    // Floor matches silentium's own AnalogMeter convention (-100 dBFS reads
+    // as "silence" on the dial, well below the dial's own -20 VU / -38 dBFS
+    // lower tick).
+    std::atomic<float> currentInputLevelDb { -100.0f };
+    std::atomic<float> currentOutputLevelDb { -100.0f };
     TenebraeEngine engine;
 
     // Raw atomic pointers into the APVTS-managed parameter values, resolved

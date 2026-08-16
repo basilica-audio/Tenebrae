@@ -287,6 +287,17 @@ void TenebraeAudioProcessor::releaseResources()
 void TenebraeAudioProcessor::reset()
 {
     engine.reset();
+
+    // Idle-rest fix (silentium's own AnalogMeter precedent - see that
+    // repo's PluginProcessor.cpp): many hosts call reset() on transport
+    // stop/suspend, a point after which processBlock() may not fire again
+    // for an arbitrary amount of time - without this, a loud reading
+    // captured in the last block right before the stop would persist on the
+    // VU dials indefinitely. Re-parking both atomics to the floor converges
+    // the GUI needles back toward the bottom of the dial as soon as the
+    // editor's next timer tick reads them.
+    currentInputLevelDb.store (-100.0f, std::memory_order_relaxed);
+    currentOutputLevelDb.store (-100.0f, std::memory_order_relaxed);
 }
 
 bool TenebraeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -320,8 +331,25 @@ void TenebraeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     pushParametersToEngine();
 
+    // M3 GUI metering, input side: the block's peak level BEFORE the engine
+    // touches it (silentium's AnalogMeter pattern - see PluginProcessor.h's
+    // docs). getMagnitude() is a simple allocation-free scan; skipped for
+    // zero-sample/zero-channel blocks so the last real level holds rather
+    // than collapsing to the floor every offline-render boundary.
+    const auto numSamples = buffer.getNumSamples();
+
+    if (numSamples > 0 && buffer.getNumChannels() > 0)
+        currentInputLevelDb.store (juce::Decibels::gainToDecibels (buffer.getMagnitude (0, numSamples), -100.0f),
+                                   std::memory_order_relaxed);
+
     juce::dsp::AudioBlock<float> block (buffer);
     engine.process (block);
+
+    // Output side, read after process() so it reflects the fully-voiced wet
+    // (or dry/wet-mixed) signal actually leaving the plugin this block.
+    if (numSamples > 0 && buffer.getNumChannels() > 0)
+        currentOutputLevelDb.store (juce::Decibels::gainToDecibels (buffer.getMagnitude (0, numSamples), -100.0f),
+                                    std::memory_order_relaxed);
 
     // Publish the (possibly just-changed) latency for LatencyReporter: only
     // the message thread may call setLatencySamples() - see PluginProcessor.h.

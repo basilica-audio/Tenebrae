@@ -80,6 +80,21 @@ juce_add_binary_data(TenebraeBinaryData SOURCES
     presets/factory/feedbackTightRhythm.json
     presets/factory/adaptiveGateChug.json
     resources/i18n/de.txt
+    # M3 photoreal GUI ("ritual" faceplate design) - copied verbatim from
+    # brand/mocks/ritual/ (repo-relative to the suite root, one level above
+    # this repo; see docs/gui-mapping.md for the full provenance and
+    # parameter-mapping table). One baked master faceplate plus its two
+    # master-extracted needle sprites:
+    #   - master_ritual.png: the SOLE faceplate baseline (copied from
+    #     master-01-base.png) - verdigris-bronze plate, 4 gargoyles,
+    #     snake/thorn relief, both VU dials empty (no needles), all 4 rune
+    #     knobs baked at 12 o'clock.
+    #   - needle_{left,right}_ritual.png: the two master-extracted,
+    #     pivot-centred VU-needle sprites (components/needle-{left,right}.png)
+    #     - rotated live by src/gui/HubNeedle, one instance per dial.
+    resources/gui/master_ritual.png
+    resources/gui/needle_left_ritual.png
+    resources/gui/needle_right_ritual.png
 )
 
 # ==============================================================================
@@ -155,6 +170,9 @@ target_compile_definitions(Tests PRIVATE
     # committed v0.2 state fixture regardless of the working directory ctest
     # happens to run the binary from.
     TENEBRAE_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+    # Absolute path to docs/, so tests/gui/EditorSnapshotTests.cpp can write
+    # the committed docs/gui-preview.png directly rather than a copy step.
+    TENEBRAE_DOCS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs"
 )
 
 set_target_properties(Tests PROPERTIES XCODE_GENERATE_SCHEME ON)
