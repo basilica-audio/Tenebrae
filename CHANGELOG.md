@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-19
+
+The M3 GUI release: the generic slider grid is replaced by the photoreal "ritual"
+faceplate, reusing the component family piloted by aureate's M3 GUI.
+
+### Added
+
+- **M3 photoreal GUI (ritual design)** (PR #29). Two VU dials (left = input level,
+  right = output level, classic distortion-unit In/Out metering) at the suite's
+  Standard-A calibration (0 VU = -18 dBFS), each with its own independently measured
+  dB-to-angle tick table (`analysis/measure_dial_ticks.py` - the two dials are genuinely
+  not identical); four whole-disc rotating rune knobs (`MasterCropKnob`, reused
+  unmodified) mapped to Gain / Bass / Mid / Treble. Every other parameter stays fully
+  automatable/preset-only - mapping table and rationale in `docs/gui-mapping.md`.
+- New `DialBreathing` component: darkening-only dial-backlight breathing (idle multi-sine
+  wander plus signal-driven liveliness) with a hard ceiling that is never brighter than
+  the baked master, pinned by a dedicated regression through the real editor.
+- Real-time-safe input/output level metering on the processor
+  (`getCurrentInputLevelDb()` / `getCurrentOutputLevelDb()`), same pattern as sibling
+  silentium.
+- `HubNeedle` generalised from the aureate pilot to take its tick table as a constructor
+  parameter.
+- 28 new GUI tests (layout invariants, editor construction/snapshot, needle/knob
+  rotation, accessibility, the breathing hard-ceiling regression) - the suite grows from
+  107 to 135 cases.
+- Elision-safe allocation-guard self-test and a sample-rate-matrix reprepare test
+  (44.1k -> 96k -> 192k, crossing 32/2048-sample blocks and a mono/stereo bus-layout
+  change; Engine/Quality deliberately left untouched, both being documented
+  non-automatable, latency-affecting switches) (PR #30).
+
+### Changed
+
+- `docs/manual.md`: "Under the hood" engineering notes for the v0.3.0 triode engine
+  (solved 12AX7 stages, power-amp feedback loop, ADAA, gate), a per-mode reported-latency
+  statement, and a "Known limitations" section; the Presence parameter row now notes its
+  relocation into the power-amp feedback return when Power Amp is engaged (PR #27).
+- Branding: v3 flat squircle icon (no dish/ring) (PR #28).
+
 ## [0.3.0] - 2026-07-27
 
 The "stateful triode engine" release. v0.2.0 shipped a static `tanh` cascade; v0.3.0 adds a second,
