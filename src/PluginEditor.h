@@ -8,6 +8,7 @@
 #include "gui/DialBreathing.h"
 #include "gui/HubNeedle.h"
 #include "gui/MasterCropKnob.h"
+#include "gui/PlateTypography.h"
 #include "gui/SubtractiveGlow.h" // GlowMixState/stepGlowMix, reused by the dial-breathing ballistics
 #include "presets/PresetBar.h"
 
@@ -65,6 +66,7 @@ private:
     void configureKnob (Knob& knob, const juce::String& parameterId, const juce::String& labelText);
     void applyScaleStep (int newStepIndex);
     void cycleScale();
+    void drawPlateTypography (juce::Graphics& g, juce::Point<float> plateOrigin, float scale) const;
 
     TenebraeAudioProcessor& audioProcessor;
 
@@ -80,6 +82,7 @@ private:
     static constexpr int numKnobs = 4;
     std::array<Knob, numKnobs> knobs;
 
+    basilica::gui::PlateTypography typography;
     basilica::gui::DialBreathing dialBreathingLeft;
     basilica::gui::DialBreathing dialBreathingRight;
     float dialBreathingMixLeft = 1.0f;

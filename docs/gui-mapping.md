@@ -223,3 +223,23 @@ docs for the exact diff/rationale):
 **Not reused**: `ToggleZoneSwap.h` (aureate's toggle-lever crop-swap helper)
 — the ritual design bakes no toggle switches on its plate, so there is
 nothing for it to swap.
+
+## Typography pass (suite typo phase)
+
+Owner decision 2026-07-26: lettering is never AI-baked - it is set locally
+as a sharp JUCE text layer in the suite serif (EB Garamond via BinaryData,
+OFL). Implementation: `src/gui/PlateTypography.h` (copied verbatim from
+the aureate pilot's typography pass), drawn last within `paint()`.
+
+The ritual design's four rune knobs carry baked sigils, not function
+names - this pass adds one gilded label per knob (`GAIN` / `BASS` / `MID`
+/ `TREBLE`) on the plate's own bottom ledge (master y ~662..688), the only
+clean lettering surface this heavily-sculpted plate offers (everything
+between the dials and knobs is thorn/vine relief). Aged gold with a dark
+drop shadow rather than dark engraving ink: the ledge is dark aged bronze
+(luminance ~40..80), where an incision-ink read vanishes - and gold
+lettering matches the brand's antique-gold-on-charcoal system. The VU
+dials keep their baked numerals/wordmark (this master DID render those
+legibly) - no changes there.
+
+Tests: `tests/gui/EditorTypographyTests.cpp`.

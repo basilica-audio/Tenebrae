@@ -69,6 +69,7 @@ namespace
         const char* labelText; // accessible name only - no baked text labels
         float cxMaster, cyMaster, rMaster; // true measured knob geometry (crop source) - layout-manifest.json "knobs" array
         int cx1x;                          // interactive slider hit-area X centre (Y comes from the shared knobRowY1x)
+        const char* engravedLabel;         // the ledge's own gilded caps (typography pass)
     };
 
     // Mapping decided for the M3 GUI pilot (docs/gui-mapping.md has the full
@@ -81,10 +82,20 @@ namespace
     // Master px geometry from brand/mocks/ritual/layout-manifest.json's own
     // "knobs" array (index 1-4, reading order left to right).
     constexpr std::array<KnobLayoutEntry, 4> knobLayout {
-        KnobLayoutEntry { ParamIDs::gain, "Gain", 339.0f, 558.0f, 63.0f, knobCx1x[0] },
-        KnobLayoutEntry { ParamIDs::bass, "Bass", 578.0f, 560.0f, 58.0f, knobCx1x[1] },
-        KnobLayoutEntry { ParamIDs::mid, "Mid", 808.0f, 549.0f, 62.0f, knobCx1x[2] },
-        KnobLayoutEntry { ParamIDs::treble, "Treble", 1055.0f, 578.0f, 58.0f, knobCx1x[3] },
+        KnobLayoutEntry { ParamIDs::gain, "Gain", 339.0f, 558.0f, 63.0f, knobCx1x[0], "GAIN" },
+        KnobLayoutEntry { ParamIDs::bass, "Bass", 578.0f, 560.0f, 58.0f, knobCx1x[1], "BASS" },
+        KnobLayoutEntry { ParamIDs::mid, "Mid", 808.0f, 549.0f, 62.0f, knobCx1x[2], "MID" },
+        KnobLayoutEntry { ParamIDs::treble, "Treble", 1055.0f, 578.0f, 58.0f, knobCx1x[3], "TREBLE" },
+    };
+
+    // ==================== typography pass ====================
+    // Gilded lettering on the plate's bottom ledge (see
+    // PluginEditorLayout.h's typography block): aged gold, slightly
+    // subdued against apotheosis's brighter leaf - this design's bronze is
+    // colder and more weathered - with a dark drop shadow one scaled pixel
+    // below (EngravedTextStyle's offset pass doubles as the shadow).
+    const basilica::gui::EngravedTextStyle gildedKnobLabelStyle {
+        juce::Colour (0xe6c9a05a), juce::Colour (0x8c000000), 13.0f, 0.14f, true
     };
 
     // Dial-breathing ballistics (SubtractiveGlow.h's stepGlowMix(), reused
@@ -128,7 +139,9 @@ namespace
 TenebraeAudioProcessorEditor::TenebraeAudioProcessorEditor (TenebraeAudioProcessor& processorToEdit)
     : juce::AudioProcessorEditor (&processorToEdit),
       audioProcessor (processorToEdit),
-      presetBar (initLocalisationThenGetPresetManager (processorToEdit))
+      presetBar (initLocalisationThenGetPresetManager (processorToEdit)),
+      typography (BinaryData::EBGaramondRegular_ttf, BinaryData::EBGaramondRegular_ttfSize,
+                  BinaryData::EBGaramondSemiBold_ttf, BinaryData::EBGaramondSemiBold_ttfSize)
 {
     masterImage = loadImage (BinaryData::master_ritual_png, BinaryData::master_ritual_pngSize);
 
@@ -314,13 +327,40 @@ void TenebraeAudioProcessorEditor::paint (juce::Graphics& g)
     drawDialBreathing (dialBreathingLeft, dialLeftCentreMasterPx, dialLeftRadiusMasterPx, dialBreathingMixLeft);
     drawDialBreathing (dialBreathingRight, dialRightCentreMasterPx, dialRightRadiusMasterPx, dialBreathingMixRight);
 
-    // (3. The 4 rune knobs are separate MasterCropKnob child components,
+    // 3. Typography layer (suite typo phase - PlateTypography.h): one
+    // gilded function label per rune knob, on the plate's bottom ledge.
+    // Drawn last within paint() so the dial-breathing blit can never
+    // cover it.
+    drawPlateTypography (g, plateOrigin, scale);
+
+    // (4. The 4 rune knobs are separate MasterCropKnob child components,
     // drawn automatically after this method returns - see resized() for
-    // their bounds. 4. The two VU needles are separate HubNeedle child
+    // their bounds. 5. The two VU needles are separate HubNeedle child
     // components, same story - everything else - the bronze plate texture,
     // the gargoyle/thorn relief, the dial faces' own tick marks, the knobs'
     // own baked outer rim/plate shadow - stays BAKED in the master, no draw
     // calls for any of it.)
+}
+
+void TenebraeAudioProcessorEditor::drawPlateTypography (juce::Graphics& g, juce::Point<float> plateOrigin, float scale) const
+{
+    const auto toScreen = [&] (juce::Rectangle<float> local1x)
+    {
+        return juce::Rectangle<float> (plateOrigin.x + local1x.getX() * scale,
+                                       plateOrigin.y + local1x.getY() * scale,
+                                       local1x.getWidth() * scale,
+                                       local1x.getHeight() * scale);
+    };
+
+    for (const auto& entry : knobLayout)
+    {
+        const juce::Rectangle<float> box1x ((float) (entry.cx1x - knobLabelWidth1x / 2),
+                                            (float) (knobLabelCy1x - knobLabelHeight1x / 2),
+                                            (float) knobLabelWidth1x,
+                                            (float) knobLabelHeight1x);
+
+        typography.drawEngraved (g, entry.engravedLabel, toScreen (box1x), scale, gildedKnobLabelStyle);
+    }
 }
 
 void TenebraeAudioProcessorEditor::resized()
