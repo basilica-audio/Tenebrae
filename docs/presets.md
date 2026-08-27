@@ -1,6 +1,6 @@
 # Factory presets
 
-Eight factory presets ship with Tenebrae v0.2.0, embedded via BinaryData from
+Twelve factory presets ship with Tenebrae, embedded via BinaryData from
 `presets/factory/*.json` (see `docs/preset-system-notes.md`-equivalent CMake
 wiring in this repo's `CMakeLists.txt`). All are engineered starting points
 against the v0.2.0 parameter set introduced in `docs/design-brief.md`'s
