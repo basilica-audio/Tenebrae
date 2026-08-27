@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exercised, so a preset library that stopped loading is distinguishable from every preset
   passing. A preset added later that clips this reference fails here.
 
+  It measures **both** ways a user arrives at a preset — a restored session (state first, then
+  `prepareToPlay()`, so every smoothed stage is primed at the preset's own values) and a
+  mid-session click in the preset browser (parameters jump while the DSP is primed for the old
+  ones). The recall path is held to "below full scale **or** below where you already were",
+  which needs no tolerance constant and blames a transition only for clipping it *introduced*.
+  Right now the departure state is the parameter defaults at +6.16 dBFS, so that ceiling is
+  slack; it tightens to 0 dBFS automatically once the fresh-instance level is fixed.
+
 ### Changed
 
 - **The suite now presents itself as Basilica Audio in every host.** `COMPANY_NAME` moves from
