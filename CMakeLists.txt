@@ -47,6 +47,10 @@ juce_add_plugin(Tenebrae
     PLUGIN_CODE Tnbr
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Tenebrae"
+    COMPANY_WEBSITE "https://basilica-audio.github.io/website/"
+    COMPANY_COPYRIGHT "Copyright (c) 2026 Yves Vogl"
+    DESCRIPTION "Cascaded, oversampled high-gain distortion with a three-band tone stack"
+    VST3_CATEGORIES Fx Distortion
     ICON_BIG "docs/assets/icon.png"
     COPY_PLUGIN_AFTER_BUILD TRUE
     IS_SYNTH FALSE

@@ -136,7 +136,7 @@ All ten new v0.3.0 parameters default to neutral, and the Classic engine's code 
 - **The Gate still defaults to on**, a v0.2.0 change carried forward, not new in v0.3.0: loading a pre-v0.2.0 session engages it at its default settings on top of whatever was saved. Every v0.3.0 addition, by contrast, is neutral by default.
 - **No cabinet simulation, by design and permanently.** Tenebrae is the wall of gain, not the speaker - pair it with a cab sim / IR loader.
 - **The GUI is still the plain pre-M3 layout**, now wrapped onto a second row for the new controls. The custom vector-drawn look-and-feel and the accessibility pass are milestone M3.
-- **Pre-1.0, AGPLv3, unsigned/partially blocked binaries.** Breaking changes are possible until v1.0.0. macOS release assets are currently blocked on an org-level signing-secret visibility issue; Windows release assets are unaffected (`CHANGELOG.md`, "Known issues").
+- **Pre-1.0, AGPLv3.** Breaking changes are possible until v1.0.0. Release binaries for macOS are Developer-ID-signed, notarised and stapled; Windows binaries are not yet Authenticode-signed.
 
 ## Tips
 
