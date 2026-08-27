@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A factory-preset headroom gate** (`tests/PresetHeadroomTests.cpp`). Every shipped
+  factory preset is rendered through the real `AudioProcessor` at 48 kHz against the suite
+  reference programme at −12 dBFS peak, and its output peak asserted below 0 dBFS. The
+  shipped trims target −0.3 dBFS, so there is 0.3 dB between "a voicing tweak moved the
+  peak" and "this gate goes red". The case also asserts the number of factory presets it
+  exercised, so a preset library that stopped loading is distinguishable from every preset
+  passing. A preset added later that clips this reference fails here.
+
 ### Changed
 
 - **The suite now presents itself as Basilica Audio in every host.** `COMPANY_NAME` moves from
@@ -45,6 +55,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and stapled; Windows **not** code-signed, so SmartScreen will warn), the install paths, the AU
   rescan hint, and links to the manual and the product page. A tag whose version has no section in
   this file now fails the release job rather than publishing an empty page.
+- **Nine of the twelve factory presets pushed a nominally tracked programme signal past
+  0 dBFS; each now carries a derived `Level` trim.** Rendered through the real
+  `AudioProcessor` at 48 kHz against the suite reference programme (four plucked notes,
+  E1 41.203 Hz to A5 880.000 Hz, twelve harmonics each, peak-normalised to −12 dBFS),
+  eight presets clipped outright — worst *Loose & Open* at **+8.13 dBFS** — and a ninth,
+  *Triode Foundation*, sat inside the 0.3 dB drift margin at −0.29 dBFS. A preset that
+  clips at the level its own author must be assumed to have voiced for asks the user to
+  pull the fader before they can audition it: a defect, not gain-staging taste.
+
+  Each offending preset gets a derived `level` trim and **nothing else**, so its voicing is
+  untouched. Trim = measured overshoot + a −0.3 dBFS headroom target, rounded up to the
+  parameter's 0.01 dB step:
+
+  | Preset | Before | Trim | After |
+  |---|---:|---:|---:|
+  | Loose & Open | +8.13 dBFS | −8.44 dB | −0.31 dBFS |
+  | Low-Tuned Percussive | +7.75 dBFS | −8.06 dB | −0.31 dBFS |
+  | Cut-Through Lead-Adjacent | +7.76 dBFS | −8.06 dB | −0.30 dBFS |
+  | Vintage Cascade | +6.29 dBFS | −6.59 dB | −0.30 dBFS |
+  | Foundation Chug | +6.16 dBFS | −6.47 dB | −0.31 dBFS |
+  | Bright Aggressive | +4.63 dBFS | −4.93 dB | −0.30 dBFS |
+  | Scooped Wall | +4.19 dBFS | −4.49 dB | −0.30 dBFS |
+  | Full Dry/Wet Blend | +3.52 dBFS | −3.82 dB | −0.35 dBFS |
+  | Triode Foundation | −0.29 dBFS | −0.02 dB | −0.31 dBFS |
+
+  *Full Dry/Wet Blend* lands 0.05 dB below the target rather than on it because `Level` is a
+  wet-path trim applied before the dry/wet mixer, so at `Mix` 55 % it does not scale the
+  output quite linearly; the residual is in the safe direction and is left as measured.
+  The three presets already at or below the target (*Sagging Doom* −3.75, *Adaptive Gate
+  Chug* −4.33, *Feedback Tight Rhythm* −2.44 dBFS) are **not raised** — that would be
+  level-matching the set, which is a taste question and stays open.
+
 - **The manual's caveat list no longer says the binaries are unsigned.** macOS release
   bundles are Developer-ID-signed, notarised and stapled; Windows is not yet
   Authenticode-signed, which is what the caveat now says.

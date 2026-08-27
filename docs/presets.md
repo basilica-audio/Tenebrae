@@ -11,7 +11,7 @@ references any manufacturer or artist.
 
 | Preset | Category | Intent |
 |---|---|---|
-| **Foundation Chug** | Init | The plugin's own default voicing, unchanged from v1's defaults (Gate added at its own default-on state) - a neutral starting point. Its parameter values are identical to `ParameterLayout.cpp`'s built-in defaults, so a fresh install's out-of-the-box sound matches this preset exactly even though `PresetManager::applyStartupDefault()` does not find a literal "Default"-named factory preset (see the note below). |
+| **Foundation Chug** | Init | The plugin's own default voicing, unchanged from v1's defaults (Gate added at its own default-on state) - a neutral starting point. Its parameter values are identical to `ParameterLayout.cpp`'s built-in defaults **except `Level`**, which carries the -6.47 dB headroom trim of issue #45 (see "Level trims and the fresh-instance level" below). |
 | **Low-Tuned Percussive** | Guitar | Tighter low end (Tight 130 Hz) and a hotter, faster-releasing gate for down-tuned rhythm work, where string noise/rumble is worst per the research (`docs/research-notes.md` section 7). |
 | **Vintage Cascade** | Guitar | Leans on the Loose voicing for a wider-band, less modern-tight character; Presence pulled back to match. |
 | **Scooped Wall** | Guitar | Tone Voice = Scoop, leaning into the "smiley curve" high-gain rhythm shape already documented in `ToneStack.cpp`'s tilt table, paired with a slightly hotter Presence since Scoop's own treble tilt is modest. |
@@ -26,15 +26,39 @@ references any manufacturer or artist.
 literally named `"Default"`. This repo's factory bank does not ship one
 (the design brief's Factory Presets section specifies exactly these eight
 presets, none named "Default") - **Foundation Chug** fills that role
-functionally instead: its parameter values are byte-for-byte identical to
-`ParameterLayout.cpp`'s built-in defaults, so a fresh plugin instance (no
-factory "Default" match, no user "Default" preset yet) falls through to
-"use the `AudioProcessorValueTreeState` defaults it was already constructed
-with" - which sounds exactly like Foundation Chug, because it is. The one
-cosmetic difference: until the user explicitly loads "Foundation Chug" from
-the preset menu, `PresetBar` shows "Init" (an empty current-preset name)
-rather than "Foundation Chug" as the display name - the parameter values are
-correct either way.
+functionally instead: apart from `Level` (see below) its parameter values are
+identical to `ParameterLayout.cpp`'s built-in defaults, so a fresh plugin
+instance (no factory "Default" match, no user "Default" preset yet) falls
+through to "use the `AudioProcessorValueTreeState` defaults it was already
+constructed with" - which is Foundation Chug's voicing. The one cosmetic
+difference: until the user explicitly loads "Foundation Chug" from the preset
+menu, `PresetBar` shows "Init" (an empty current-preset name) rather than
+"Foundation Chug" as the display name - the parameter values are correct
+either way.
+
+## Level trims and the fresh-instance level
+
+Every factory preset's `Level` value is gated by
+`tests/PresetHeadroomTests.cpp`: rendered through the real processor at 48 kHz
+against the suite reference programme (four plucked notes spanning E1 41.203 Hz
+to A5 880.000 Hz, twelve harmonics each, peak-normalised to -12 dBFS), a factory
+preset's output peak must stay below 0 dBFS. Nine presets needed a trim to get
+there; each trim is exactly that preset's own measured overshoot plus a -0.3 dBFS
+headroom target, rounded up to the parameter's 0.01 dB step, and **nothing else
+in the preset changed** - `Level` is an output trim, so this changes how loud a
+preset is and not how it sounds. Presets already below the target were not
+raised: the gate is a ceiling, not a level-matching target.
+
+**A fresh instance is deliberately NOT covered by that gate, and is currently
+6.47 dB hotter than Foundation Chug.** Because no factory preset is literally
+named "Default", `applyStartupDefault()` is a no-op and a fresh instance uses
+`ParameterLayout.cpp`'s built-in defaults, whose `Level` is 0 dB - so out of the
+box the plugin still pushes the reference programme to +6.16 dBFS. The obvious
+fix (changing the `level` parameter's *default* to -6.47 dB) is not applied here
+because the parameter default is also what `T-S1` uses to render a v0.2.0 session
+state: moving it would silently re-level every existing session that predates the
+parameter. Fixing the fresh-instance level needs the startup state to come from a
+preset rather than from the parameter defaults, which is tracked separately.
 
 A user can still make any preset (including Foundation Chug) the literal
 startup default via the preset menu's "Set current as default", which writes
