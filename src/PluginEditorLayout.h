@@ -127,6 +127,24 @@ namespace tnbr::layout
     constexpr int knobRowY1x = 367; // rowYs mean_cy (561.25 master px) * scale, rounded
     constexpr int knobDiameter1x = 79; // mean measured knob radius (60.25 master px) * 2 * scale, rounded
 
+    //==========================================================================
+    // Typography pass (suite typo phase, owner decision 2026-07-26: text is
+    // never baked into the AI master - lettering is set locally as a sharp
+    // JUCE text layer, see src/gui/PlateTypography.h and
+    // docs/gui-mapping.md's typography section). The ritual design's four
+    // rune knobs carry baked sigils, not function names - one gilded label
+    // per knob names its function, set on the plate's own bottom ledge
+    // (the smooth horizontal band under the knob bays, master y ~662..688
+    // - the only clean lettering surface this heavily-sculpted plate
+    // offers; everything between the dials and knobs is thorn/vine
+    // relief). Gilded gold rather than dark engraving ink: the ledge is
+    // dark aged bronze (luminance ~40..80), where an incision-ink read
+    // vanishes - aged-gold lettering matches the brand's antique-gold-on-
+    // charcoal system.
+    constexpr int knobLabelCy1x = 441; // ledge band centre (675 master px * scale)
+    constexpr int knobLabelWidth1x = 96;
+    constexpr int knobLabelHeight1x = 14;
+
     constexpr std::array<int, 4> knobCx1x { 222, 378, 528, 690 };
 
     constexpr int baseEditorWidth = plateWidth1x;
