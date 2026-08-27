@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The manual's caveat list no longer says the binaries are unsigned.** macOS release
+  bundles are Developer-ID-signed, notarised and stapled; Windows is not yet
+  Authenticode-signed, which is what the caveat now says.
+  The Tenebrae entry additionally claimed macOS release assets were *"blocked on an
+  org-level signing-secret visibility issue"*; v0.5.0 shipped a signed, notarised and
+  stapled macOS bundle.
 - **The README no longer tells users the binaries do not exist.** The Installation section
   said *"No pre-built binaries are published yet"* while the banner four lines above it linked
   the Releases page, and the banner in turn described the macOS builds as *"currently
