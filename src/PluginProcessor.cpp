@@ -44,6 +44,7 @@ namespace
     std::vector<basilica::presets::FactoryPresetAsset> makeFactoryPresetAssets()
     {
         return {
+            { BinaryData::default_json, BinaryData::default_jsonSize },
             { BinaryData::foundationChug_json, BinaryData::foundationChug_jsonSize },
             { BinaryData::lowTunedPercussive_json, BinaryData::lowTunedPercussive_jsonSize },
             { BinaryData::vintageCascade_json, BinaryData::vintageCascade_jsonSize },

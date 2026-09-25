@@ -1,0 +1,25 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.tenebrae",
+    "pluginVersion": "0.2.0",
+    "name": "Default",
+    "category": "Init",
+    "parameters": {
+        "tight": 90.0,
+        "gain": 24.0,
+        "bass": 0.0,
+        "mid": 0.0,
+        "treble": 0.0,
+        "level": -6.47,
+        "mix": 100.0,
+        "voicing": 0.0,
+        "bright": 0.0,
+        "toneVoice": 0.0,
+        "presence": 0.0,
+        "gateThreshold": -48.0,
+        "gateAttack": 1.0,
+        "gateHold": 20.0,
+        "gateRelease": 150.0,
+        "gateOn": 1.0
+    }
+}

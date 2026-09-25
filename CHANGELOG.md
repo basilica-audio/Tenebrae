@@ -22,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mid-session click in the preset browser (parameters jump while the DSP is primed for the old
   ones). The recall path is held to "below full scale **or** below where you already were",
   which needs no tolerance constant and blames a transition only for clipping it *introduced*.
-  Right now the departure state is the parameter defaults at +6.16 dBFS, so that ceiling is
-  slack; it tightens to 0 dBFS automatically once the fresh-instance level is fixed.
+  The departure state used to be the parameter defaults at +6.16 dBFS, which left that ceiling
+  slack; see the fresh-instance fix under Fixed below, which tightens it to a real 0 dBFS ceiling.
 
 ### Changed
 
@@ -112,6 +112,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`docs/presets.md` no longer pins its factory-preset count to a superseded release**; `presets/factory/` holds 12.
 - **Removed committed scratch/diagnostic test files** that were documented in their own
   headers as throwaway probes: `tests/ScratchDebugTests.cpp`.
+- **A fresh plugin instance now opens at Foundation Chug's trimmed level, not the `Level`
+  parameter's raw 0 dB default** (basilica-audio/Tenebrae#47). The factory-preset headroom
+  gate added above already flagged the gap: the departure state a fresh instance rendered
+  from sat at +6.16 dBFS on the reference programme — *above* the very 0 dBFS ceiling every
+  factory preset is held to. The factory bank now ships a preset literally named `Default`
+  (`presets/factory/default.json`, a byte-for-byte copy of Foundation Chug), which
+  `PresetManager::applyStartupDefault()` resolves to on every fresh instance with no user
+  `Default` preset saved. The plugin now opens 6.47 dB quieter, at Foundation Chug's own
+  trimmed level, and `PresetBar` shows "Default" as the startup preset name instead of "Init".
+  The `level` parameter's own default stays 0 dB, unchanged — it is still what `T-S1` renders
+  a v0.2.0 session state against — and restored sessions are unaffected either way:
+  `setStateInformation()` overwrites whatever the startup preset applied. The headroom gate's
+  fresh-instance assertion is now a satisfied gate rather than deliberately slack.
 
 ### Added
 

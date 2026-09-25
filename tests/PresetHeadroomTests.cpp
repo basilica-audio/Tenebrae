@@ -46,11 +46,12 @@ namespace
     // tasted, and never applied to a preset that was already under the line.
     constexpr double headroomTargetDbfs = -0.3;
 
-    // Twelve factory presets ship - CMakeLists.txt's juce_add_binary_data
+    // Thirteen factory presets ship (twelve plus the "Default" preset added
+    // by basilica-audio/Tenebrae#47) - CMakeLists.txt's juce_add_binary_data
     // list and PluginProcessor.cpp's makeFactoryPresetAssets() must agree with
     // this. Asserted below so that "the preset library stopped loading" is
     // distinguishable from "every preset passed".
-    constexpr int shippedFactoryPresetCount = 12;
+    constexpr int shippedFactoryPresetCount = 13;
 
     // The two ways a user actually arrives at a factory preset, which are NOT
     // equivalent and are both gated below.
@@ -74,11 +75,16 @@ namespace
         midSessionRecall
     };
 
-    // Rendering the reference programme with NO preset loaded: the state a
-    // mid-session recall departs FROM, i.e. the plugin's own parameter defaults.
-    // The recall gate needs it, because a transition can only fairly be blamed
-    // for clipping it introduced - see the gate below.
-    constexpr const char* departureStateName = "the parameter defaults";
+    // Rendering the reference programme with NO preset explicitly loaded: the
+    // state a mid-session recall departs FROM. Since basilica-audio/Tenebrae#47,
+    // this is no longer the raw ParameterLayout defaults - a fresh
+    // TenebraeAudioProcessor's constructor calls PresetManager::
+    // applyStartupDefault(), which now resolves to the factory "Default"
+    // preset (a copy of Foundation Chug, trimmed below 0 dBFS) rather than
+    // being a no-op. The recall gate needs this measurement regardless of what
+    // it resolves to, because a transition can only fairly be blamed for
+    // clipping it introduced - see the gate below.
+    constexpr const char* departureStateName = "the startup state (factory \"Default\" preset)";
 
     //==========================================================================
     // The fleet reference programme signal.
@@ -165,8 +171,9 @@ namespace
     }
 
     // One preset's measured output peak, in dBFS, on the reference programme.
-    // An empty `presetName` renders the departure state - the parameter
-    // defaults, no preset loaded at all.
+    // An empty `presetName` renders the departure state - no preset explicitly
+    // loaded here, which is the fresh-instance startup state (see
+    // departureStateName above).
     double renderFactoryPresetPeakDb (const juce::String& presetName,
                                       const juce::AudioBuffer<float>& input,
                                       Arrival arrival)
@@ -280,6 +287,25 @@ TEST_CASE ("Factory presets: none of them push the reference programme past 0 dB
     CHECK (factoryCount == shippedFactoryPresetCount);
     CHECK (overFullScale == 0);
     CHECK (transitionsThatMadeItWorse == 0);
+}
+
+// basilica-audio/Tenebrae#47 DoD: "gate extended to cover the fresh instance".
+// A freshly constructed TenebraeAudioProcessor, with no preset explicitly
+// loaded, now resolves its own startup state to the factory "Default" preset
+// (see PluginProcessor.cpp's constructor and PresetManager::
+// applyStartupDefault()) - this is the exact departure state the recall gate
+// above already measures, asserted here directly and by name so a regression
+// that reintroduces a 0 dB (or louder) fresh-instance startup fails on its
+// own, not only as a side effect of the recall ceiling comparison.
+TEST_CASE ("Factory presets: a fresh instance's own startup state stays below 0 dBFS", "[presets][headroom]")
+{
+    const auto input = makeReferenceProgramme (referenceSampleRate);
+
+    const auto freshInstancePeakDb = renderFactoryPresetPeakDb ({}, input, Arrival::sessionLoad);
+    INFO ("fresh instance startup state (" << departureStateName << ") peaks at "
+          << freshInstancePeakDb << " dBFS");
+
+    CHECK (juce::Decibels::decibelsToGain (freshInstancePeakDb) < clippingCeiling);
 }
 
 // Hidden reporting case: `./Tests "[.headroom-table]"` prints the measured peak

@@ -87,6 +87,7 @@ juce_add_plugin(Tenebrae
 # ==============================================================================
 
 juce_add_binary_data(TenebraeBinaryData SOURCES
+    presets/factory/default.json
     presets/factory/foundationChug.json
     presets/factory/lowTunedPercussive.json
     presets/factory/vintageCascade.json
