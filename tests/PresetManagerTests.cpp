@@ -34,6 +34,7 @@ namespace
     std::vector<FactoryPresetAsset> makeTestFactoryPresetAssets()
     {
         return {
+            { BinaryData::default_json, BinaryData::default_jsonSize },
             { BinaryData::foundationChug_json, BinaryData::foundationChug_jsonSize },
             { BinaryData::lowTunedPercussive_json, BinaryData::lowTunedPercussive_jsonSize },
             { BinaryData::vintageCascade_json, BinaryData::vintageCascade_jsonSize },
@@ -299,7 +300,10 @@ TEST_CASE ("PresetManager: every factory preset parses and loads without error",
     const auto all = manager.getAllPresets();
     const auto factoryCount = std::count_if (all.begin(), all.end(), [] (auto& e) { return e.isFactory; });
 
-    REQUIRE (factoryCount == 8); // design-brief.md's Factory Presets section
+    // design-brief.md's Factory Presets section (8) plus the "Default"
+    // factory preset (basilica-audio/Tenebrae#47) makeTestFactoryPresetAssets()
+    // above now ships.
+    REQUIRE (factoryCount == 9);
 
     for (auto& entry : all)
     {
@@ -323,10 +327,10 @@ TEST_CASE ("PresetManager: factory preset content is plausible (Foundation Chug 
     PresetManager manager (processor.apvts, makeIsolatedConfig (scratch.dir), makeTestFactoryPresetAssets());
 
     const auto all = manager.getAllPresets();
-    // See docs/presets.md's "Note on Default resolution": Foundation Chug
-    // (not a preset literally named "Default") is this repo's Init-category
-    // neutral starting point - its values are identical to
-    // ParameterLayout.cpp's built-in defaults.
+    // See docs/presets.md's "Note on 'Default' resolution": Foundation Chug
+    // is this repo's Init-category neutral starting point, and the factory
+    // "Default" preset (basilica-audio/Tenebrae#47) is a byte-for-byte copy
+    // of it under a different name - both load identical values.
     const auto defaultEntry = std::find_if (all.begin(), all.end(), [] (auto& e) { return e.name == "Foundation Chug"; });
 
     REQUIRE (defaultEntry != all.end());
@@ -360,22 +364,40 @@ TEST_CASE ("PresetManager: factory preset content is plausible (Foundation Chug 
 
 //==============================================================================
 // 5. Default resolution order (user Default > factory Default > plain defaults).
-TEST_CASE ("PresetManager: applyStartupDefault() is a no-op when no factory or user Default exists",
+TEST_CASE ("PresetManager: the factory bank ships a preset literally named \"Default\"", "[presets]")
+{
+    // basilica-audio/Tenebrae#47, Option 1: a fresh instance must start at
+    // Foundation Chug's trimmed level rather than the 0 dB Level parameter
+    // default. presets/factory/default.json is a byte-for-byte copy of
+    // foundationChug.json renamed to "Default" - see docs/presets.md's
+    // "Note on 'Default' resolution".
+    TenebraeAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    ScopedTestDirectory scratch;
+    PresetManager manager (processor.apvts, makeIsolatedConfig (scratch.dir), makeTestFactoryPresetAssets());
+
+    const auto all = manager.getAllPresets();
+    const auto defaultEntry = std::find_if (all.begin(), all.end(), [] (auto& e) { return e.name == "Default"; });
+
+    REQUIRE (defaultEntry != all.end());
+    CHECK (defaultEntry->isFactory);
+    CHECK (defaultEntry->category == "Init");
+
+    REQUIRE (manager.loadPreset ("Default"));
+    CHECK (manager.isCurrentPresetFactory());
+    CHECK (getParam (processor, ParamIDs::level) == Catch::Approx (-6.47f).margin (1.0e-3));
+}
+
+TEST_CASE ("PresetManager: applyStartupDefault() loads the factory Default when no user Default exists",
            "[presets]")
 {
-    // Unlike nave's factory bank (which ships a preset literally named
-    // "Default"), this repo's factory bank does not - see
-    // docs/presets.md's note. loadPreset("Default") therefore returns false
-    // and, per its own documented contract ("Returns false (state left
-    // untouched) if no preset with that exact name exists" - see
-    // PresetManager.h's loadPreset() docs), applyStartupDefault() leaves
-    // whatever the APVTS was already holding completely alone - it is a
-    // pure no-op here, not a reset to the ParameterLayout defaults (that
-    // would only happen if a matching preset were found and *loaded*; the
-    // "use the defaults the APVTS was already constructed with" part of the
-    // spec's resolution order describes the state the very first
-    // construction already left it in, before this test's setParam() call
-    // below perturbs it).
+    // A fresh instance's constructor calls applyStartupDefault() with no
+    // user "Default" preset on disk (see PluginProcessor.cpp), so resolution
+    // falls through to the factory "Default" this repo now ships - not a
+    // no-op, and not the raw ParameterLayout defaults (see ParameterTests.cpp
+    // for those, which stay untouched - getDefaultValue() only ever reflects
+    // the layout, never the live post-startup value asserted here).
     TenebraeAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
 
@@ -386,8 +408,12 @@ TEST_CASE ("PresetManager: applyStartupDefault() is a no-op when no factory or u
 
     manager.applyStartupDefault();
 
-    CHECK (manager.getCurrentPresetName().isEmpty());
-    CHECK (getParam (processor, ParamIDs::tight) == Catch::Approx (250.0f).margin (1.0e-3));
+    CHECK (manager.getCurrentPresetName() == "Default");
+    CHECK (manager.isCurrentPresetFactory());
+    // The factory Default's own values (identical to Foundation Chug's),
+    // not the 250 Hz this test perturbed tight to beforehand.
+    CHECK (getParam (processor, ParamIDs::tight) == Catch::Approx (90.0f).margin (1.0e-3));
+    CHECK (getParam (processor, ParamIDs::level) == Catch::Approx (-6.47f).margin (1.0e-3));
 }
 
 TEST_CASE ("PresetManager: a user Default preset wins and is found by applyStartupDefault()", "[presets]")
@@ -399,7 +425,10 @@ TEST_CASE ("PresetManager: a user Default preset wins and is found by applyStart
     PresetManager manager (processor.apvts, makeIsolatedConfig (scratch.dir), makeTestFactoryPresetAssets());
 
     setParam (processor, ParamIDs::tight, 111.0f);
-    REQUIRE (manager.setCurrentAsDefault()); // writes a user preset literally named "Default"
+    // Writes a user preset literally named "Default" - this must win even
+    // though the factory bank also ships one (user-over-factory resolution
+    // in loadPreset(), the same order applyStartupDefault() relies on).
+    REQUIRE (manager.setCurrentAsDefault());
 
     setParam (processor, ParamIDs::tight, 20.0f); // perturb away before the resolution check
 
@@ -410,7 +439,7 @@ TEST_CASE ("PresetManager: a user Default preset wins and is found by applyStart
     CHECK (getParam (processor, ParamIDs::tight) == Catch::Approx (111.0f).margin (1.0e-3));
 }
 
-TEST_CASE ("PresetManager: resetDefault() removes the user Default so applyStartupDefault() becomes a no-op again",
+TEST_CASE ("PresetManager: resetDefault() removes the user Default so applyStartupDefault() falls back to the factory Default",
            "[presets]")
 {
     TenebraeAudioProcessor processor;
@@ -424,14 +453,15 @@ TEST_CASE ("PresetManager: resetDefault() removes the user Default so applyStart
     REQUIRE (manager.resetDefault());
 
     // Neither setCurrentAsDefault() nor resetDefault() touch the live APVTS
-    // state (see their docs) - tight is still 111 here, and
-    // applyStartupDefault() below is once again a no-op (no user or factory
-    // "Default" left to find), so it stays exactly 111, not reset to
-    // ParameterLayout's own default (90).
+    // state (see their docs) - tight is still 111 here. applyStartupDefault()
+    // below now finds no user Default, but does find the factory Default
+    // this repo ships (basilica-audio/Tenebrae#47), so it loads it and tight
+    // moves to the factory Default's own value (90), not staying at 111.
     manager.applyStartupDefault();
 
-    CHECK (manager.getCurrentPresetName().isEmpty());
-    CHECK (getParam (processor, ParamIDs::tight) == Catch::Approx (111.0f).margin (1.0e-3));
+    CHECK (manager.getCurrentPresetName() == "Default");
+    CHECK (manager.isCurrentPresetFactory());
+    CHECK (getParam (processor, ParamIDs::tight) == Catch::Approx (90.0f).margin (1.0e-3));
 }
 
 //==============================================================================
@@ -741,7 +771,7 @@ TEST_CASE ("T-PR2: the eight original factory presets still render exactly as th
     }
 }
 
-TEST_CASE ("T-PR2b: the factory bank has twelve presets and loads deterministically", "[preset]")
+TEST_CASE ("T-PR2b: the factory bank has thirteen presets and loads deterministically", "[preset]")
 {
     TenebraeAudioProcessor processor;
     const auto presets = processor.presetManager.getAllPresets();
@@ -752,8 +782,9 @@ TEST_CASE ("T-PR2b: the factory bank has twelve presets and loads deterministica
         if (preset.isFactory)
             ++factoryCount;
 
-    // Eight from v0.2 plus four new ones showcasing the Triode engine.
-    CHECK (factoryCount == 12);
+    // Eight from v0.2 plus four showcasing the Triode engine, plus the
+    // "Default" factory preset (basilica-audio/Tenebrae#47).
+    CHECK (factoryCount == 13);
 
     SECTION ("loading a preset twice gives identical parameter values")
     {

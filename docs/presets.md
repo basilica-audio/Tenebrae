@@ -1,6 +1,6 @@
 # Factory presets
 
-Twelve factory presets ship with Tenebrae, embedded via BinaryData from
+Thirteen factory presets ship with Tenebrae, embedded via BinaryData from
 `presets/factory/*.json` (see `docs/preset-system-notes.md`-equivalent CMake
 wiring in this repo's `CMakeLists.txt`). All are engineered starting points
 against the v0.2.0 parameter set introduced in `docs/design-brief.md`'s
@@ -11,7 +11,8 @@ references any manufacturer or artist.
 
 | Preset | Category | Intent |
 |---|---|---|
-| **Foundation Chug** | Init | The plugin's own default voicing, unchanged from v1's defaults (Gate added at its own default-on state) - a neutral starting point. Its parameter values are identical to `ParameterLayout.cpp`'s built-in defaults **except `Level`**, which carries the -6.47 dB headroom trim of issue #45 (see "Level trims and the fresh-instance level" below). |
+| **Default** | Init | Startup state; identical to Foundation Chug. The literal preset `PresetManager::applyStartupDefault()` resolves to on a fresh plugin instance (basilica-audio/Tenebrae#47) - see "Note on 'Default' resolution" below. |
+| **Foundation Chug** | Init | The plugin's own default voicing, unchanged from v1's defaults (Gate added at its own default-on state) - a neutral starting point, and the preset **Default** (above) is copied from. Its parameter values are identical to `ParameterLayout.cpp`'s built-in defaults **except `Level`**, which carries the -6.47 dB headroom trim of issue #45 (see "Level trims and the fresh-instance level" below). |
 | **Low-Tuned Percussive** | Guitar | Tighter low end (Tight 130 Hz) and a hotter, faster-releasing gate for down-tuned rhythm work, where string noise/rumble is worst per the research (`docs/research-notes.md` section 7). |
 | **Vintage Cascade** | Guitar | Leans on the Loose voicing for a wider-band, less modern-tight character; Presence pulled back to match. |
 | **Scooped Wall** | Guitar | Tone Voice = Scoop, leaning into the "smiley curve" high-gain rhythm shape already documented in `ToneStack.cpp`'s tilt table, paired with a slightly hotter Presence since Scoop's own treble tilt is modest. |
@@ -23,18 +24,28 @@ references any manufacturer or artist.
 ## Note on "Default" resolution
 
 `PresetManager::applyStartupDefault()` looks for a factory or user preset
-literally named `"Default"`. This repo's factory bank does not ship one
-(the design brief's Factory Presets section specifies exactly these eight
-presets, none named "Default") - **Foundation Chug** fills that role
-functionally instead: apart from `Level` (see below) its parameter values are
-identical to `ParameterLayout.cpp`'s built-in defaults, so a fresh plugin
-instance (no factory "Default" match, no user "Default" preset yet) falls
-through to "use the `AudioProcessorValueTreeState` defaults it was already
-constructed with" - which is Foundation Chug's voicing. The one cosmetic
-difference: until the user explicitly loads "Foundation Chug" from the preset
-menu, `PresetBar` shows "Init" (an empty current-preset name) rather than
-"Foundation Chug" as the display name - the parameter values are correct
-either way.
+literally named `"Default"`, and since basilica-audio/Tenebrae#47 (Option 1)
+this repo's factory bank ships one: a byte-for-byte copy of Foundation Chug,
+`presets/factory/default.json`. On a fresh plugin instance with no user
+"Default" preset yet, resolution finds this factory preset and loads it -
+`PresetBar` now shows "Default" as the current preset name out of the box,
+rather than "Init" (an empty current-preset name) as it did before this
+preset existed. Foundation Chug remains a separate, explicitly-selectable
+entry in the factory bank carrying the identical parameter values; picking it
+by name from the preset menu behaves exactly as it always has.
+
+A user can still override the startup preset via the preset menu's "Set
+current as default", which writes a user preset file literally named
+"Default" (see `PresetManager.h`'s `setCurrentAsDefault()`) - user presets
+are resolved before factory ones (see `PresetManager::loadPreset()`), so a
+user "Default" always wins over the factory one. `resetDefault()` removes the
+user override; resolution then falls back to the factory "Default" again,
+not to the raw `ParameterLayout.cpp` defaults, since the factory preset is
+always there to be found.
+
+Restoring a saved session is unaffected either way: `AudioProcessor::
+setStateInformation()` overwrites whatever the startup preset applied and
+does not go through `PresetManager` at all (see `PluginProcessor.cpp`).
 
 ## Level trims and the fresh-instance level
 
@@ -49,16 +60,24 @@ in the preset changed** - `Level` is an output trim, so this changes how loud a
 preset is and not how it sounds. Presets already below the target were not
 raised: the gate is a ceiling, not a level-matching target.
 
-**A fresh instance is deliberately NOT covered by that gate, and is currently
-6.47 dB hotter than Foundation Chug.** Because no factory preset is literally
-named "Default", `applyStartupDefault()` is a no-op and a fresh instance uses
-`ParameterLayout.cpp`'s built-in defaults, whose `Level` is 0 dB - so out of the
-box the plugin still pushes the reference programme to +6.16 dBFS. The obvious
-fix (changing the `level` parameter's *default* to -6.47 dB) is not applied here
-because the parameter default is also what `T-S1` uses to render a v0.2.0 session
-state: moving it would silently re-level every existing session that predates the
-parameter. Fixing the fresh-instance level needs the startup state to come from a
-preset rather than from the parameter defaults, which is tracked separately.
+**A fresh instance is now covered by that gate.** Since basilica-audio/
+Tenebrae#47 (Option 1), the factory bank ships a preset literally named
+"Default" (a copy of Foundation Chug), so `applyStartupDefault()` is no longer
+a no-op: a fresh instance loads it and inherits the same -6.47 dB `Level`
+trim, so out of the box the plugin sits below 0 dBFS on the reference
+programme rather than pushing it to +6.16 dBFS. `tests/PresetHeadroomTests.cpp`
+asserts this directly (`[presets][headroom]`, "a fresh instance's own startup
+state stays below 0 dBFS"), on top of the mid-session-recall gate that already
+measured this state as its departure point.
+
+The `level` parameter's own *default* (0 dB, `ParameterLayout.cpp`) is
+deliberately left unchanged - it is still what `T-S1` uses to render a v0.2.0
+session state, and moving it would silently re-level every existing session
+that predates the parameter. That is safe precisely because a restored
+session never runs through the startup preset in the first place:
+`setStateInformation()` overwrites whatever `applyStartupDefault()` applied,
+so this change is invisible to a session save/reload and only changes what a
+brand-new plugin instance sounds like before the user touches anything.
 
 A user can still make any preset (including Foundation Chug) the literal
 startup default via the preset menu's "Set current as default", which writes
